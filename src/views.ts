@@ -58,25 +58,153 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6p
 
 export function renderHomePage(): string {
   return layout(
-    'Aegis MVP',
+    'Aegis',
     `
-    <div class="grid">
-      <div class="card">
-        <h1>Aegis MVP Prototype</h1>
-        <p>AI agent payment authorization sandbox (API + web approval + audit + webhook + mock card/crypto execution).</p>
-        <div class="actions">
-          <a href="/docs/openapi.yaml">OpenAPI YAML</a>
-          <a href="/admin">Admin Dashboard</a>
-          <a href="/dev/emails">Dev Email Outbox</a>
-          <a href="/healthz">Health</a>
+    <div class="grid" style="gap:20px">
+      <section class="card" style="padding:0; overflow:hidden; border-color:#cfd7ea;">
+        <div style="padding:12px 18px; border-bottom:1px solid #e4e9f4; background:linear-gradient(180deg,#ffffff,#f8fbff); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0052ff,#5fa3ff);"></div>
+            <strong style="font-size:15px;">Aegis</strong>
+            <span class="small">AI Agent Consumption Authorization Protocol</span>
+          </div>
+          <div class="actions">
+            <a href="/docs/openapi.yaml">API Docs</a>
+            <a href="/admin">Demo Console</a>
+          </div>
         </div>
-      </div>
-      <div class="card">
-        <h2>Seed Data</h2>
-        <p><code>x-aegis-api-key: aegis_demo_agent_key</code></p>
-        <p><code>end_user_id: usr_demo</code></p>
-        <p class="small">Use <code>merchant_api:*</code> / <code>payment_link:*</code> for card rail, and <code>address:0x...</code> / <code>wallet:*</code> for crypto rail.</p>
-      </div>
+        <div style="padding:32px 24px; background:
+          radial-gradient(800px 300px at 15% 0%, rgba(0,82,255,.14), transparent 70%),
+          radial-gradient(700px 260px at 95% 20%, rgba(63,131,255,.10), transparent 60%),
+          linear-gradient(180deg,#fbfdff 0%,#f5f8ff 100%);">
+          <div class="grid cols-2" style="align-items:start;">
+            <div>
+              <div class="badge" style="background:#edf3ff;color:#1d4ed8;border-color:#bfdbfe;">Coinbase-style fintech clarity · Trust-first for agents</div>
+              <h1 style="font-size:clamp(34px,5vw,56px); line-height:1.02; margin:14px 0 14px; letter-spacing:-0.02em;">
+                Let AI agents buy for you.
+                <span style="color:#0052ff;">Only when you approve.</span>
+              </h1>
+              <p style="font-size:17px; line-height:1.5; max-width:56ch;">
+                Aegis is the human authorization layer for the agent economy. Agents request a payment through one API.
+                You approve or deny in real time. Raw credentials stay out of the agent stack.
+              </p>
+              <div class="actions" style="margin-top:16px;">
+                <a href="/admin" style="background:#0052ff;color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;">Try Interactive Demo</a>
+                <a href="/docs/openapi.yaml" style="background:#eef4ff;color:#0f3a8a;padding:10px 14px;border-radius:10px;text-decoration:none;">OpenAPI Spec</a>
+              </div>
+              <div class="grid cols-2" style="margin-top:18px;">
+                <div class="card" style="padding:12px; background:#fff; border-color:#e4e9f4;">
+                  <div class="small">MVP rails</div>
+                  <strong>Card + Crypto</strong>
+                </div>
+                <div class="card" style="padding:12px; background:#fff; border-color:#e4e9f4;">
+                  <div class="small">Approval model</div>
+                  <strong>Web + Passkey</strong>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="card" style="border-color:#dbe5fb; background:linear-gradient(180deg,#ffffff,#f8fbff);">
+                <h3 style="margin-bottom:8px;">Live request flow</h3>
+                <table>
+                  <tr><th>1</th><td>Agent calls <code>POST /v1/request_action</code></td></tr>
+                  <tr><th>2</th><td>Aegis sends approval link / app prompt</td></tr>
+                  <tr><th>3</th><td>User approves via Web / Passkey / App biometric</td></tr>
+                  <tr><th>4</th><td>Aegis executes on selected payment rail</td></tr>
+                  <tr><th>5</th><td>Signed webhook callback returns terminal status</td></tr>
+                </table>
+                <div class="small" style="margin-top:10px;">Built for agent developers first. Designed to become a consumer-grade trust product.</div>
+              </div>
+              <div class="card" style="margin-top:14px; border-color:#dbe5fb; background:#fff;">
+                <h3 style="margin-bottom:8px;">Design style (benchmark: Coinbase landing)</h3>
+                <p style="margin:0;">Aegis uses a clean, high-trust fintech visual language: bright whites, disciplined blue accents, generous spacing, structured cards, and low-noise information hierarchy. The goal is to communicate security and clarity before speed.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid cols-2">
+        <div class="card">
+          <h2>Why Aegis</h2>
+          <table>
+            <tr><th>Problem</th><td>Agents can automate buying, but users do not want to expose cards, CVVs, or private keys.</td></tr>
+            <tr><th>Aegis role</th><td>Acts as an approval and execution proxy so agents request intent, not credentials.</td></tr>
+            <tr><th>User control</th><td>Real-time approve/deny for each transaction instead of coarse budgets only.</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h2>Core value props</h2>
+          <div class="grid">
+            <div><span class="badge">Universal API</span><p>One agent-facing integration surface across card and crypto rails.</p></div>
+            <div><span class="badge">Human-in-the-loop</span><p>Structured requests with clear amount/recipient/description before execution.</p></div>
+            <div><span class="badge">Auditability</span><p>Immutable-style audit logs, webhook deliveries, and replay tooling for every action.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>How It Works (Developer + User)</h2>
+        <div class="grid cols-2">
+          <div>
+            <h3>For agent developers</h3>
+            <ol style="padding-left:18px; margin:0;">
+              <li>Register agent and get API key</li>
+              <li>Call <code>/v1/request_action</code> with declarative payment intent</li>
+              <li>Receive lifecycle webhooks: approved / denied / succeeded / failed</li>
+              <li>Use replay and sandbox tools to test edge cases quickly</li>
+            </ol>
+          </div>
+          <div>
+            <h3>For end users</h3>
+            <ol style="padding-left:18px; margin:0;">
+              <li>Connect payment methods (tokenized card / managed crypto rail)</li>
+              <li>Open approval request in web or app</li>
+              <li>Confirm using passkey or biometric flow</li>
+              <li>Track all actions in a transparent audit trail</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid cols-2">
+        <div class="card">
+          <h2>Security posture (MVP)</h2>
+          <div class="grid">
+            <div><strong>Credential isolation</strong><p>Agents never touch raw credentials.</p></div>
+            <div><strong>Webhook signatures</strong><p>HMAC signed callback delivery with retry + replay tooling.</p></div>
+            <div><strong>Passkey support</strong><p>Web approval flow supports WebAuthn passkey verification.</p></div>
+            <div><strong>Admin protection</strong><p>Dev/admin tooling is protected by login session.</p></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Try the product locally</h2>
+          <p><strong>Seed demo credentials</strong></p>
+          <p><code>x-aegis-api-key: aegis_demo_agent_key</code></p>
+          <p><code>end_user_id: usr_demo</code></p>
+          <p class="small">Card refs: <code>merchant_api:*</code> / <code>payment_link:*</code><br/>Crypto refs: <code>address:0x...</code> / <code>wallet:*</code></p>
+          <div class="actions">
+            <a href="/dev/sandbox">Sandbox Demos</a>
+            <a href="/dev/webhooks">Webhook Replay UI</a>
+            <a href="/dev/passkeys">Passkey Enrollment</a>
+            <a href="/dev/emails">Email Outbox</a>
+            <a href="/healthz">Health</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="background:linear-gradient(180deg,#0052ff,#0b4fd1); color:#fff; border-color:#0b4fd1;">
+        <div class="grid cols-2" style="align-items:center;">
+          <div>
+            <h2 style="color:#fff; margin-bottom:8px;">Build the trust layer for agent commerce</h2>
+            <p style="color:rgba(255,255,255,.86);">Aegis is building the approval protocol between autonomous agents and human money. Start with the MVP console and sandbox tools, then integrate the API.</p>
+          </div>
+          <div class="actions" style="justify-content:flex-end;">
+            <a href="/admin" style="background:#fff;color:#0b4fd1;padding:10px 14px;border-radius:10px;text-decoration:none;">Open Demo Console</a>
+            <a href="/docs/openapi.yaml" style="background:rgba(255,255,255,.14);color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;border:1px solid rgba(255,255,255,.25);">View API Spec</a>
+          </div>
+        </div>
+      </section>
     </div>`
   );
 }
