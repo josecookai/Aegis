@@ -4,7 +4,7 @@ import { randomToken } from '../lib/crypto';
 import { DomainError, AegisService } from '../services/aegis';
 import { AdminAuthService } from '../services/adminAuth';
 import { WebAuthnService } from '../services/webauthn';
-import { renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage } from '../views';
+import { renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage } from '../views';
 import { DecisionSource } from '../types';
 
 export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService): Router {
@@ -152,6 +152,25 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
         }))
       : [];
     res.type('html').send(renderPasskeyDevPage({ users, selectedUserId, passkeys }));
+  });
+
+  router.get('/dev/webhooks', (req, res) => {
+    const actionId = req.query.action_id ? String(req.query.action_id) : undefined;
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const deliveries = service
+      .listWebhookDeliveries({ actionId, status, limit: 200 })
+      .map((d: any) => ({ ...d, payload: JSON.parse(String(d.payload_json ?? '{}')) }));
+    res.type('html').send(renderWebhookDevPage({ deliveries, filters: { action_id: actionId, status } }));
+  });
+
+  router.post('/dev/webhooks/:deliveryId/requeue', (req, res, next) => {
+    try {
+      service.requeueWebhookDelivery(req.params.deliveryId);
+      const back = typeof req.header('referer') === 'string' ? req.header('referer')! : '/dev/webhooks';
+      res.redirect(back);
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.post('/dev/passkeys/register/options', async (req, res, next) => {

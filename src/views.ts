@@ -322,6 +322,12 @@ export function renderAdminPage(data: Record<string, unknown>): string {
         <h1>Aegis Admin Dashboard</h1>
         <p>Prototype internal console for trial ops, debugging, and audit visibility.</p>
         <p class="small">Now: ${escapeHtml(String(data.now ?? ''))}</p>
+        <div class="actions">
+          <a href="/dev/webhooks">Webhook Deliveries UI</a>
+          <form method="post" action="/logout" style="display:inline">
+            <button class="ghost" type="submit">Logout</button>
+          </form>
+        </div>
       </div>
       <div class="grid cols-2">
         <div class="card">
@@ -487,5 +493,73 @@ export function renderPasskeyDevPage(params: {
       document.getElementById('enrollPasskeyBtn')?.addEventListener('click', () => void enroll());
       document.getElementById('authPasskeyBtn')?.addEventListener('click', () => void authTest());
     </script>`
+  );
+}
+
+export function renderWebhookDevPage(params: {
+  deliveries: Array<Record<string, unknown>>;
+  filters: { action_id?: string; status?: string };
+}): string {
+  const rows = params.deliveries
+    .map((d) => {
+      const payload = (d.payload as Record<string, unknown>) ?? {};
+      const action = (payload.action as Record<string, unknown>) ?? {};
+      return `<tr>
+        <td><code>${escapeHtml(String(d.id))}</code></td>
+        <td><span class="status ${escapeHtml(String(d.status))}">${escapeHtml(String(d.status))}</span></td>
+        <td>${escapeHtml(String(d.event_type))}</td>
+        <td><code>${escapeHtml(String(d.action_id))}</code></td>
+        <td>${escapeHtml(String(d.attempts ?? 0))}</td>
+        <td>${escapeHtml(String(d.http_status ?? ''))}</td>
+        <td>${escapeHtml(String(d.last_error ?? ''))}</td>
+        <td class="small">${escapeHtml(String(d.next_attempt_at ?? ''))}</td>
+        <td>
+          <div class="actions">
+            <form method="post" action="/dev/webhooks/${encodeURIComponent(String(d.id))}/requeue">
+              <button class="ghost" type="submit">Requeue</button>
+            </form>
+            <details>
+              <summary>Payload</summary>
+              <pre>${escapeHtml(JSON.stringify({ event_type: d.event_type, action: { id: action.id, status: action.status } }, null, 2))}</pre>
+            </details>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join('');
+
+  return layout(
+    'Dev Webhooks',
+    `<div class="grid">
+      <div class="card">
+        <h1>Dev Webhook Deliveries</h1>
+        <p>Inspect webhook delivery attempts and manually requeue failed or dead deliveries.</p>
+        <form method="get" action="/dev/webhooks" class="grid cols-2">
+          <label>action_id
+            <input type="text" name="action_id" value="${escapeHtml(params.filters.action_id ?? '')}" placeholder="act_..." />
+          </label>
+          <label>status
+            <select name="status">
+              <option value="" ${!params.filters.status ? 'selected' : ''}>All</option>
+              <option value="pending" ${params.filters.status === 'pending' ? 'selected' : ''}>pending</option>
+              <option value="delivered" ${params.filters.status === 'delivered' ? 'selected' : ''}>delivered</option>
+              <option value="dead" ${params.filters.status === 'dead' ? 'selected' : ''}>dead</option>
+              <option value="failed" ${params.filters.status === 'failed' ? 'selected' : ''}>failed</option>
+            </select>
+          </label>
+          <div class="actions">
+            <button class="primary" type="submit">Filter</button>
+            <a href="/dev/webhooks">Reset</a>
+          </div>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Deliveries (${params.deliveries.length})</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Status</th><th>Event</th><th>Action</th><th>Attempts</th><th>HTTP</th><th>Error</th><th>Next Try</th><th>Actions</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="9">No deliveries</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`
   );
 }

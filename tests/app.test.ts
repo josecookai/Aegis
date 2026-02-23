@@ -235,6 +235,44 @@ describe('Aegis MVP prototype', () => {
     expect(updated?.status).toBe('pending');
   });
 
+  it('renders webhook replay UI and supports web requeue action', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_webhook_ui_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: 'http://127.0.0.1:9/unreachable',
+        details: {
+          amount: '5.00',
+          currency: 'USD',
+          recipient_name: 'Webhook UI Merchant',
+          description: 'decline for ui replay',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:ui_fail',
+        },
+      })
+      .expect(201);
+    const actionId = String(create.body.action.action_id);
+
+    await api.post(`/api/dev/actions/${actionId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'approve' }).expect(200);
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
+
+    const listRes = await api.get(`/api/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).set('Cookie', [adminCookie]).expect(200);
+    const deliveryId = String((listRes.body.deliveries as Array<any>)[0].id);
+
+    const page = await api.get(`/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).set('Cookie', [adminCookie]).expect(200);
+    expect(page.text).toContain('Dev Webhook Deliveries');
+    expect(page.text).toContain(deliveryId);
+
+    await api.post(`/dev/webhooks/${deliveryId}/requeue`).set('Cookie', [adminCookie]).expect(302);
+  });
+
   it('exposes passkey registration options for dev enrollment', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);

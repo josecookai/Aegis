@@ -249,6 +249,7 @@ Open:
 - `http://localhost:3000/` (home)
 - `http://localhost:3000/admin` (admin dashboard)
 - `http://localhost:3000/dev/emails` (dev email outbox)
+- `http://localhost:3000/dev/webhooks` (webhook replay UI)
 
 ## Admin Login (New)
 
@@ -321,6 +322,12 @@ These now require admin login (browser cookie session).
 - `GET /api/dev/webhooks` : inspect webhook deliveries (`?action_id=...&status=pending`)
 - `POST /api/dev/webhooks/:deliveryId/requeue` : requeue a failed/dead delivery for replay
 - `GET /api/dev/actions/:actionId/audit` : inspect audit trail for one action
+
+### Webhook Replay UI
+
+- Open `/dev/webhooks`
+- Filter by `action_id` or status
+- Click `Requeue` to manually retry a delivery (uses existing dev replay API)
 
 ## New Feature: Real Passkey (WebAuthn) Enrollment + Approval (Prototype)
 
