@@ -362,6 +362,10 @@ describe('Aegis MVP prototype', () => {
     const detail = await api.get(location).set('Cookie', [adminCookie]).expect(200);
     expect(detail.text).toContain('Action Detail & Audit');
     expect(detail.text).toContain('Sandbox injected failure');
+
+    const sandboxPage = await api.get('/dev/sandbox').set('Cookie', [adminCookie]).expect(200);
+    expect(sandboxPage.text).toContain('Recent Callback Inbox');
+    expect(sandboxPage.text).toContain('action.failed');
   });
 
   it('app approval API: GET approval by token and POST decision with app_biometric', async () => {

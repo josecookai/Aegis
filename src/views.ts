@@ -580,6 +580,7 @@ export function renderActionAuditPage(params: {
 }): string {
   const action = params.action;
   const execution = (action.execution as Record<string, unknown> | null) ?? null;
+  const details = (action.details as Record<string, unknown> | null) ?? null;
   const rows = params.auditLogs
     .map((log) => `<tr>
       <td>${escapeHtml(String(log.id))}</td>
@@ -599,12 +600,28 @@ export function renderActionAuditPage(params: {
       </div>
       <div class="card">
         <h2>Action ${escapeHtml(String(action.action_id))}</h2>
+        <div class="grid cols-2">
+          <div>
+            <p><span class="status ${escapeHtml(String(action.status))}">${escapeHtml(String(action.status))}</span></p>
+            <p><strong>Amount:</strong> ${escapeHtml(String(details?.amount ?? ''))} ${escapeHtml(String(details?.currency ?? ''))}</p>
+            <p><strong>Recipient:</strong> ${escapeHtml(String(details?.recipient_name ?? ''))}</p>
+            <p><strong>Rail:</strong> ${escapeHtml(String(details?.payment_rail ?? ''))}</p>
+            <p><strong>Description:</strong> ${escapeHtml(String(details?.description ?? ''))}</p>
+          </div>
+          <div>
+            <p><strong>Execution Status:</strong> ${escapeHtml(String(execution?.status ?? 'n/a'))}</p>
+            <p><strong>Error Code:</strong> ${escapeHtml(String(execution?.error_code ?? ''))}</p>
+            <p><strong>Payment ID:</strong> ${escapeHtml(String(execution?.payment_id ?? ''))}</p>
+            <p><strong>Tx Hash:</strong> ${escapeHtml(String(execution?.tx_hash ?? ''))}</p>
+            ${
+              execution?.sandbox_injected_fault
+                ? `<p><strong style="color:#b42318">Sandbox injected failure: ${escapeHtml(String(execution.sandbox_injected_fault))}</strong></p>`
+                : ''
+            }
+          </div>
+        </div>
+        <h3>Raw Action JSON</h3>
         <pre>${escapeHtml(JSON.stringify(action, null, 2))}</pre>
-        ${
-          execution?.sandbox_injected_fault
-            ? `<p><strong style="color:#b42318">Sandbox injected failure: ${escapeHtml(String(execution.sandbox_injected_fault))}</strong></p>`
-            : ''
-        }
       </div>
       <div class="card">
         <h2>Audit Logs (${params.auditLogs.length})</h2>
@@ -620,6 +637,7 @@ export function renderActionAuditPage(params: {
 export function renderSandboxFaultsPage(params: {
   snapshot: Record<string, any>;
   message?: string;
+  recentCallbacks?: Array<Record<string, unknown>>;
 }): string {
   const card = params.snapshot.card ?? {};
   const crypto = params.snapshot.crypto ?? {};
@@ -667,6 +685,10 @@ export function renderSandboxFaultsPage(params: {
       <div class="card">
         <h3>Snapshot</h3>
         <pre>${escapeHtml(JSON.stringify(params.snapshot, null, 2))}</pre>
+      </div>
+      <div class="card">
+        <h3>Recent Callback Inbox (${params.recentCallbacks?.length ?? 0})</h3>
+        <pre>${escapeHtml(JSON.stringify(params.recentCallbacks ?? [], null, 2))}</pre>
       </div>
     </div>`
   );

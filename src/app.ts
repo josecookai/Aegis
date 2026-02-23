@@ -40,6 +40,7 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
 
   const app = express();
   app.disable('x-powered-by');
+  (app as any).locals.testCallbackInbox = testCallbackInbox;
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser());

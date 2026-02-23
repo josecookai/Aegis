@@ -175,7 +175,10 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
 
   router.get('/dev/sandbox', (req, res) => {
     const message = typeof req.query.message === 'string' ? req.query.message : undefined;
-    res.type('html').send(renderSandboxFaultsPage({ snapshot: sandboxFaults.getSnapshot(), message }));
+    const callbacks = [ ...(((req.app as any).locals.testCallbackInbox as Array<Record<string, unknown>>) ?? []) ]
+      .slice(-10)
+      .reverse();
+    res.type('html').send(renderSandboxFaultsPage({ snapshot: sandboxFaults.getSnapshot(), message, recentCallbacks: callbacks }));
   });
 
   router.post('/dev/sandbox/set', (req, res, next) => {

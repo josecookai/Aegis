@@ -341,6 +341,12 @@ API equivalents:
 - `GET /api/dev/sandbox/faults`
 - `POST /api/dev/sandbox/faults`
 - `POST /api/dev/sandbox/faults/reset`
+- `POST /api/dev/sandbox/presets`
+
+New:
+- One-click demo buttons on `/dev/sandbox` to auto-run preset scenarios
+- Recent callback inbox preview on `/dev/sandbox`
+- Action detail + audit HTML page: `/dev/actions/:actionId`
 
 ## New Feature: Real Passkey (WebAuthn) Enrollment + Approval (Prototype)
 
