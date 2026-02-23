@@ -353,6 +353,42 @@ export class AegisService {
     };
   }
 
+  devForceDecision(actionId: string, decision: 'approve' | 'deny' | 'expire', source: DecisionSource = 'web_magic_link'): ActionRecord {
+    const ctx = this.store.getActionContext(actionId);
+    if (!ctx) {
+      throw new DomainError('NOT_FOUND', 'Action not found', 404);
+    }
+    if (ctx.action.status !== 'awaiting_approval') {
+      throw new DomainError('INVALID_STATE', `Action is not awaiting approval (current=${ctx.action.status})`, 409);
+    }
+
+    if (decision === 'expire') {
+      const expired = this.store.transitionActionStatus({ actionId, to: 'expired', reason: 'dev_forced_expire' });
+      this.queueCallbackForActionStatus(expired);
+      return expired;
+    }
+
+    const normalized = decision === 'approve' ? 'approved' : 'denied';
+    this.store.createDecision(actionId, ctx.endUser.id, normalized, source, { via: 'dev_endpoint' });
+    const updated = this.store.transitionActionStatus({ actionId, to: normalized, reason: 'dev_forced_decision' });
+    this.queueCallbackForActionStatus(updated);
+    return updated;
+  }
+
+  listWebhookDeliveries(params?: { actionId?: string; status?: string; limit?: number }) {
+    return this.store.listWebhookDeliveries(params);
+  }
+
+  requeueWebhookDelivery(deliveryId: string): { delivery_id: string; status: string } {
+    const delivery = this.store.getWebhookDeliveryById(deliveryId);
+    if (!delivery) {
+      throw new DomainError('NOT_FOUND', 'Webhook delivery not found', 404);
+    }
+    this.store.requeueWebhookDelivery(deliveryId);
+    const refreshed = this.store.getWebhookDeliveryById(deliveryId);
+    return { delivery_id: deliveryId, status: refreshed?.status ?? 'pending' };
+  }
+
   private queueCallbackForActionStatus(action: ActionRecord): { id: string; event_id: string } | null {
     const eventType = mapStatusToWebhookEvent(action.status);
     if (!eventType) return null;

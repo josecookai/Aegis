@@ -500,6 +500,50 @@ export class AegisStore {
       .all(now, limit) as WebhookDeliveryRecord[];
   }
 
+  listWebhookDeliveries(filters?: { actionId?: string; status?: string; limit?: number }): WebhookDeliveryRecord[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (filters?.actionId) {
+      where.push('action_id = ?');
+      args.push(filters.actionId);
+    }
+    if (filters?.status) {
+      where.push('status = ?');
+      args.push(filters.status);
+    }
+    const sql = `SELECT * FROM webhook_deliveries ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY datetime(created_at) DESC LIMIT ?`;
+    args.push(filters?.limit ?? 100);
+    return this.db.prepare(sql).all(...args) as WebhookDeliveryRecord[];
+  }
+
+  getWebhookDeliveryById(deliveryId: string): WebhookDeliveryRecord | null {
+    const row = this.db.prepare('SELECT * FROM webhook_deliveries WHERE id = ?').get(deliveryId) as WebhookDeliveryRecord | undefined;
+    return row ?? null;
+  }
+
+  requeueWebhookDelivery(deliveryId: string): void {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `UPDATE webhook_deliveries
+         SET status = 'pending', next_attempt_at = ?, last_error = NULL
+         WHERE id = ?`
+      )
+      .run(now, deliveryId);
+    const delivery = this.db
+      .prepare('SELECT action_id, event_id, event_type FROM webhook_deliveries WHERE id = ?')
+      .get(deliveryId) as { action_id: string; event_id: string; event_type: string } | undefined;
+    if (delivery) {
+      this.appendAuditLogInternal({
+        actionId: delivery.action_id,
+        eventType: 'webhook.requeued',
+        actorType: 'system',
+        actorId: null,
+        payload: { delivery_id: deliveryId, event_id: delivery.event_id, event_type: delivery.event_type },
+      });
+    }
+  }
+
   markWebhookDelivered(deliveryId: string, httpStatus: number): void {
     const now = nowIso();
     this.db

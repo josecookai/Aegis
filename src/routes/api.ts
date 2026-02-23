@@ -112,6 +112,44 @@ export function createApiRouter(service: AegisService): Router {
     }
   });
 
+  router.post('/api/dev/actions/:actionId/decision', (req, res, next) => {
+    try {
+      const decision = String(req.body?.decision ?? '');
+      if (!['approve', 'deny', 'expire'].includes(decision)) {
+        throw new DomainError('INVALID_DECISION', 'decision must be approve | deny | expire', 400);
+      }
+      const source = (req.body?.decision_source ?? 'web_magic_link') as any;
+      const action = service.devForceDecision(req.params.actionId, decision as 'approve' | 'deny' | 'expire', source);
+      res.json({ action: service.getStore().toActionApiResponse(action) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/api/dev/webhooks', (req, res, next) => {
+    try {
+      const actionId = req.query.action_id ? String(req.query.action_id) : undefined;
+      const status = req.query.status ? String(req.query.status) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      const deliveries = service.listWebhookDeliveries({ actionId, status, limit }).map((d) => ({
+        ...d,
+        payload: safeJsonParse(d.payload_json, {}),
+      }));
+      res.json({ deliveries });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/api/dev/webhooks/:deliveryId/requeue', (req, res, next) => {
+    try {
+      const result = service.requeueWebhookDelivery(req.params.deliveryId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.use((error: unknown, _req: any, res: any, _next: any) => {
     if (error instanceof ZodError) {
       return res.status(400).json({ error: 'INVALID_REQUEST', details: error.issues });

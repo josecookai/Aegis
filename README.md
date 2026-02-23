@@ -299,3 +299,11 @@ npm test
 - Card and crypto execution are **mock providers** with deterministic success/failure based on `recipient_reference` / description.
 - Email delivery is captured in `email_outbox` and rendered in `/dev/emails`.
 - This prototype is designed for architecture and flow validation, not production compliance.
+
+## Dev/Sandbox Debug Endpoints (Prototype)
+
+- `POST /api/dev/workers/tick` : run one worker cycle (expire approvals, execute approved actions, dispatch webhooks)
+- `POST /api/dev/actions/:actionId/decision` : force `approve` / `deny` / `expire` for debugging
+- `GET /api/dev/webhooks` : inspect webhook deliveries (`?action_id=...&status=pending`)
+- `POST /api/dev/webhooks/:deliveryId/requeue` : requeue a failed/dead delivery for replay
+- `GET /api/dev/actions/:actionId/audit` : inspect audit trail for one action

@@ -144,6 +144,82 @@ describe('Aegis MVP prototype', () => {
     const deniedCallbacks = runtime.testCallbackInbox.filter((e) => e.body && (e.body as any).event_type === 'action.denied');
     expect(deniedCallbacks.length).toBeGreaterThan(0);
   });
+
+  it('supports cancel before approval and emits canceled callback', async () => {
+    const api = request(runtime.app);
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_cancel_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: `${baseUrl}/_test/callback`,
+        details: {
+          amount: '7.00',
+          currency: 'USD',
+          recipient_name: 'Cancelable Merchant',
+          description: 'Cancel flow',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:cancel_me',
+        },
+      })
+      .expect(201);
+
+    const actionId = String(create.body.action.action_id);
+    await api.post(`/v1/actions/${actionId}/cancel`).set('x-aegis-api-key', 'aegis_demo_agent_key').send({}).expect(200);
+    await api.post('/api/dev/workers/tick').send({}).expect(200);
+
+    const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(final.body.action.status).toBe('canceled');
+
+    const canceledCallbacks = runtime.testCallbackInbox.filter((e) => e.body && (e.body as any).event_type === 'action.canceled');
+    expect(canceledCallbacks.length).toBeGreaterThan(0);
+  });
+
+  it('handles execution failure and can requeue a failed webhook delivery', async () => {
+    const api = request(runtime.app);
+
+    const failing = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_exec_fail_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: 'http://127.0.0.1:9/unreachable',
+        details: {
+          amount: '15.00',
+          currency: 'USD',
+          recipient_name: 'Decline Merchant',
+          description: 'decline this payment',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:force_fail',
+        },
+      })
+      .expect(201);
+
+    const actionId = String(failing.body.action.action_id);
+    await api.post(`/api/dev/actions/${actionId}/decision`).send({ decision: 'approve' }).expect(200);
+    await api.post('/api/dev/workers/tick').send({}).expect(200);
+
+    const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(final.body.action.status).toBe('failed');
+    expect(final.body.action.execution?.error_code).toBe('PSP_DECLINED');
+
+    const deliveriesRes = await api.get(`/api/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).expect(200);
+    const deliveries = deliveriesRes.body.deliveries as Array<any>;
+    expect(deliveries.length).toBeGreaterThan(0);
+    expect(deliveries.some((d) => d.status === 'pending' || d.status === 'dead')).toBe(true);
+
+    const target = deliveries[0];
+    await api.post(`/api/dev/webhooks/${target.id}/requeue`).send({}).expect(200);
+    const afterRequeue = await api.get(`/api/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).expect(200);
+    const updated = (afterRequeue.body.deliveries as Array<any>).find((d) => d.id === target.id);
+    expect(updated?.status).toBe('pending');
+  });
 });
 
 function extractCookieValue(setCookie: string | string[] | undefined, name: string): string {
