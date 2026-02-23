@@ -353,6 +353,54 @@ export class AegisService {
     };
   }
 
+  getActionAuditView(actionId: string): { action: ReturnType<AegisStore['toActionApiResponse']>; audit_logs: Array<Record<string, unknown>> } {
+    const action = this.store.getActionById(actionId);
+    if (!action) {
+      throw new DomainError('NOT_FOUND', 'Action not found', 404);
+    }
+    return {
+      action: this.store.toActionApiResponse(action),
+      audit_logs: this.store.listAuditLogsForAction(actionId),
+    };
+  }
+
+  async runSandboxDemo(preset: 'PSP_DECLINE_DEMO' | 'CHAIN_REVERT_DEMO' | 'TIMEOUT_DEMO', callbackUrl: string): Promise<{ actionId: string; status: string }> {
+    const agent = this.authenticateAgent('aegis_demo_agent_key');
+    const isCrypto = preset === 'CHAIN_REVERT_DEMO';
+    const action = this.createActionRequest(agent, {
+      idempotency_key: `sandbox_demo_${preset}_${Date.now()}`,
+      end_user_id: 'usr_demo',
+      action_type: 'payment',
+      callback_url: callbackUrl,
+      details: isCrypto
+        ? {
+            amount: '15.00',
+            currency: 'USDC',
+            recipient_name: 'Sandbox Demo Wallet',
+            description: `Sandbox demo ${preset}`,
+            payment_rail: 'crypto',
+            payment_method_preference: 'crypto_default',
+            recipient_reference: 'address:0x3333333333333333333333333333333333333333',
+          }
+        : {
+            amount: '15.00',
+            currency: 'USD',
+            recipient_name: 'Sandbox Demo Merchant',
+            description: `Sandbox demo ${preset}`,
+            payment_rail: 'card',
+            payment_method_preference: 'card_default',
+            recipient_reference: 'merchant_api:sandbox_demo',
+          },
+      metadata: { sandbox_demo: true, preset },
+    }).action;
+
+    this.devForceDecision(action.id, 'approve');
+    await this.processApprovedActions();
+    await this.dispatchDueWebhooks();
+    const final = this.store.getActionById(action.id)!;
+    return { actionId: final.id, status: final.status };
+  }
+
   devForceDecision(actionId: string, decision: 'approve' | 'deny' | 'expire', source: DecisionSource = 'web_magic_link'): ActionRecord {
     const ctx = this.store.getActionContext(actionId);
     if (!ctx) {

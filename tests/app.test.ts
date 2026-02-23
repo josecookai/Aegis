@@ -345,6 +345,25 @@ describe('Aegis MVP prototype', () => {
     expect(snapshot.body.sandbox_faults?.crypto?.mode).toBe('revert');
   });
 
+  it('runs sandbox demo from UI and opens action detail audit page', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    const res = await api
+      .post('/dev/sandbox/demo')
+      .set('Cookie', [adminCookie])
+      .type('form')
+      .send({ preset: 'PSP_DECLINE_DEMO' })
+      .expect(302);
+
+    const location = String(res.headers.location ?? '');
+    expect(location).toMatch(/^\/dev\/actions\//);
+
+    const detail = await api.get(location).set('Cookie', [adminCookie]).expect(200);
+    expect(detail.text).toContain('Action Detail & Audit');
+    expect(detail.text).toContain('Sandbox injected failure');
+  });
+
   it('app approval API: GET approval by token and POST decision with app_biometric', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);

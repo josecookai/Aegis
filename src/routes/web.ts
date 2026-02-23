@@ -5,7 +5,7 @@ import { DomainError, AegisService } from '../services/aegis';
 import { AdminAuthService } from '../services/adminAuth';
 import { SandboxFaultService, FaultScope, SandboxPresetName } from '../services/sandboxFaults';
 import { WebAuthnService } from '../services/webauthn';
-import { renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage } from '../views';
+import { renderActionAuditPage, renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage } from '../views';
 import { DecisionSource } from '../types';
 
 export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService, sandboxFaults: SandboxFaultService): Router {
@@ -164,6 +164,15 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     res.type('html').send(renderWebhookDevPage({ deliveries, filters: { action_id: actionId, status } }));
   });
 
+  router.get('/dev/actions/:actionId', (req, res, next) => {
+    try {
+      const view = service.getActionAuditView(req.params.actionId);
+      res.type('html').send(renderActionAuditPage({ action: view.action, auditLogs: view.audit_logs }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/dev/sandbox', (req, res) => {
     const message = typeof req.query.message === 'string' ? req.query.message : undefined;
     res.type('html').send(renderSandboxFaultsPage({ snapshot: sandboxFaults.getSnapshot(), message }));
@@ -197,6 +206,20 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
       if (!allowed.includes(preset)) throw new DomainError('INVALID_PRESET', 'Invalid preset', 400);
       sandboxFaults.applyPreset(preset);
       res.redirect(`/dev/sandbox?message=${encodeURIComponent(`Applied preset ${preset}`)}`);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/dev/sandbox/demo', async (req, res, next) => {
+    try {
+      const preset = String(req.body?.preset ?? '') as SandboxPresetName;
+      const allowed: SandboxPresetName[] = ['PSP_DECLINE_DEMO', 'CHAIN_REVERT_DEMO', 'TIMEOUT_DEMO'];
+      if (!allowed.includes(preset)) throw new DomainError('INVALID_PRESET', 'Invalid preset', 400);
+      sandboxFaults.applyPreset(preset);
+      const callbackBase = `${req.protocol}://${req.get('host')}`;
+      const result = await service.runSandboxDemo(preset, `${callbackBase}/_test/callback`);
+      res.redirect(`/dev/actions/${encodeURIComponent(result.actionId)}?demo=1`);
     } catch (error) {
       next(error);
     }

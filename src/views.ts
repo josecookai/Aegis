@@ -296,7 +296,7 @@ export function renderAdminPage(data: Record<string, unknown>): string {
         <td>${escapeHtml(String(details.recipient_name ?? ''))}</td>
         <td>${escapeHtml(String(details.payment_rail ?? ''))}</td>
         <td>
-          <a href="/api/dev/actions/${encodeURIComponent(String(a.action_id))}/audit">audit</a>
+          <a href="/dev/actions/${encodeURIComponent(String(a.action_id))}">audit</a>
           ${
             (a.execution as Record<string, unknown> | null)?.sandbox_injected_fault
               ? `<div class="small" style="color:#b42318">sandbox-injected: ${escapeHtml(
@@ -574,6 +574,49 @@ export function renderWebhookDevPage(params: {
   );
 }
 
+export function renderActionAuditPage(params: {
+  action: any;
+  auditLogs: Array<Record<string, unknown>>;
+}): string {
+  const action = params.action;
+  const execution = (action.execution as Record<string, unknown> | null) ?? null;
+  const rows = params.auditLogs
+    .map((log) => `<tr>
+      <td>${escapeHtml(String(log.id))}</td>
+      <td>${escapeHtml(String(log.created_at))}</td>
+      <td>${escapeHtml(String(log.event_type))}</td>
+      <td>${escapeHtml(String(log.actor_type))}</td>
+      <td><pre>${escapeHtml(String(log.payload_json ?? '{}'))}</pre></td>
+    </tr>`)
+    .join('');
+
+  return layout(
+    'Action Audit',
+    `<div class="grid">
+      <div class="card">
+        <h1>Action Detail & Audit</h1>
+        <div class="actions"><a href="/admin">Back to Admin</a><a href="/dev/webhooks?action_id=${encodeURIComponent(String(action.action_id))}">Open Webhooks</a></div>
+      </div>
+      <div class="card">
+        <h2>Action ${escapeHtml(String(action.action_id))}</h2>
+        <pre>${escapeHtml(JSON.stringify(action, null, 2))}</pre>
+        ${
+          execution?.sandbox_injected_fault
+            ? `<p><strong style="color:#b42318">Sandbox injected failure: ${escapeHtml(String(execution.sandbox_injected_fault))}</strong></p>`
+            : ''
+        }
+      </div>
+      <div class="card">
+        <h2>Audit Logs (${params.auditLogs.length})</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Time</th><th>Event</th><th>Actor</th><th>Payload</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5">No logs</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`
+  );
+}
+
 export function renderSandboxFaultsPage(params: {
   snapshot: Record<string, any>;
   message?: string;
@@ -589,8 +632,12 @@ export function renderSandboxFaultsPage(params: {
         ${params.message ? `<p><strong>${escapeHtml(params.message)}</strong></p>` : ''}
         <div class="actions">
           <form method="post" action="/dev/sandbox/reset"><button class="danger" type="submit">Reset All</button></form>
+          <form method="post" action="/dev/sandbox/demo"><input type="hidden" name="preset" value="PSP_DECLINE_DEMO"/><button class="primary" type="submit">Run Demo: PSP_DECLINE</button></form>
+          <form method="post" action="/dev/sandbox/demo"><input type="hidden" name="preset" value="CHAIN_REVERT_DEMO"/><button class="primary" type="submit">Run Demo: CHAIN_REVERT</button></form>
+          <form method="post" action="/dev/sandbox/demo"><input type="hidden" name="preset" value="TIMEOUT_DEMO"/><button class="primary" type="submit">Run Demo: TIMEOUT</button></form>
           <a href="/admin">Back to Admin</a>
         </div>
+        <p class="small">One-click demo will apply the preset, create a demo action, force-approve it, run execution, and send callback to local test inbox.</p>
       </div>
       <div class="grid cols-2">
         <div class="card">
