@@ -2,10 +2,11 @@ import path from 'node:path';
 import { Router } from 'express';
 import { randomToken } from '../lib/crypto';
 import { DomainError, AegisService } from '../services/aegis';
-import { renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage } from '../views';
+import { WebAuthnService } from '../services/webauthn';
+import { renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage } from '../views';
 import { DecisionSource } from '../types';
 
-export function createWebRouter(service: AegisService): Router {
+export function createWebRouter(service: AegisService, webauthn: WebAuthnService): Router {
   const router = Router();
 
   router.get('/', (_req, res) => {
@@ -30,7 +31,41 @@ export function createWebRouter(service: AegisService): Router {
       secure: false,
       maxAge: 15 * 60 * 1000,
     });
-    res.type('html').send(renderApprovalPage({ ...view, csrfToken: csrf }));
+    const passkeyCount = view.endUser ? service.getStore().countPasskeysForUser(view.endUser.id) : 0;
+    res.type('html').send(renderApprovalPage({ ...view, csrfToken: csrf, passkeyCount }));
+  });
+
+  router.post('/approve/:token/passkey/options', async (req, res, next) => {
+    try {
+      const csrfCookie = req.cookies?.aegis_csrf;
+      const csrfBody = req.body?.csrf;
+      if (!csrfCookie || !csrfBody || csrfCookie !== csrfBody) {
+        throw new DomainError('CSRF_FAILED', 'CSRF validation failed', 403);
+      }
+      const options = await webauthn.generateApprovalAuthenticationOptions(req.params.token);
+      res.json({ options });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/approve/:token/passkey-decision', async (req, res, next) => {
+    try {
+      const csrfCookie = req.cookies?.aegis_csrf;
+      const csrfBody = req.body?.csrf;
+      if (!csrfCookie || !csrfBody || csrfCookie !== csrfBody) {
+        throw new DomainError('CSRF_FAILED', 'CSRF validation failed', 403);
+      }
+      const decision = String(req.body?.decision ?? '');
+      if (decision !== 'approve' && decision !== 'deny') {
+        throw new DomainError('INVALID_DECISION', 'decision must be approve or deny', 400);
+      }
+      await webauthn.verifyApprovalAuthentication(req.params.token, req.body?.assertion);
+      const action = service.submitApprovalDecision(req.params.token, decision as 'approve' | 'deny', 'web_passkey');
+      res.json({ ok: true, action_id: action.id, status: action.status, redirect_url: `/approve/${encodeURIComponent(req.params.token)}` });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.post('/approve/:token/decision', (req, res, next) => {
@@ -70,6 +105,69 @@ export function createWebRouter(service: AegisService): Router {
 
   router.get('/dev/emails', (_req, res) => {
     res.type('html').send(renderEmailOutboxPage(service.getStore().listEmailOutbox(100)));
+  });
+
+  router.get('/dev/passkeys', (req, res) => {
+    const users = service.getStore().listEndUsers().map((u) => ({ id: u.id, email: u.email, display_name: u.display_name }));
+    const selectedUserId = String(req.query.user_id ?? users[0]?.id ?? '');
+    const passkeys = selectedUserId
+      ? service.getStore().listPasskeysForUser(selectedUserId).map((p) => ({
+          id: p.id,
+          user_id: p.user_id,
+          credential_id: `${p.credential_id.slice(0, 12)}...`,
+          counter: p.counter,
+          device_type: p.device_type,
+          backed_up: !!p.backed_up,
+          transports: p.transports,
+          created_at: p.created_at,
+          last_used_at: p.last_used_at,
+        }))
+      : [];
+    res.type('html').send(renderPasskeyDevPage({ users, selectedUserId, passkeys }));
+  });
+
+  router.post('/dev/passkeys/register/options', async (req, res, next) => {
+    try {
+      const userId = String(req.body?.user_id ?? '');
+      if (!userId) throw new DomainError('INVALID_END_USER', 'user_id is required', 400);
+      const options = await webauthn.generateRegistrationOptionsForUser(userId);
+      res.json({ options });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/dev/passkeys/register/verify', async (req, res, next) => {
+    try {
+      const userId = String(req.body?.user_id ?? '');
+      if (!userId) throw new DomainError('INVALID_END_USER', 'user_id is required', 400);
+      const result = await webauthn.verifyRegistrationForUser(userId, req.body?.response);
+      res.json({ ok: true, credential_id: result.credentialId });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/dev/passkeys/auth/options', async (req, res, next) => {
+    try {
+      const userId = String(req.body?.user_id ?? '');
+      if (!userId) throw new DomainError('INVALID_END_USER', 'user_id is required', 400);
+      const options = await webauthn.generateAuthenticationOptionsForUser(userId);
+      res.json({ options });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/dev/passkeys/auth/verify', async (req, res, next) => {
+    try {
+      const userId = String(req.body?.user_id ?? '');
+      if (!userId) throw new DomainError('INVALID_END_USER', 'user_id is required', 400);
+      const result = await webauthn.verifyAuthenticationForUser(userId, req.body?.response);
+      res.json({ ok: result.verified });
+    } catch (error) {
+      next(error);
+    }
   });
 
   return router;

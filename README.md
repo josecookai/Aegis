@@ -307,3 +307,17 @@ npm test
 - `GET /api/dev/webhooks` : inspect webhook deliveries (`?action_id=...&status=pending`)
 - `POST /api/dev/webhooks/:deliveryId/requeue` : requeue a failed/dead delivery for replay
 - `GET /api/dev/actions/:actionId/audit` : inspect audit trail for one action
+
+## New Feature: Real Passkey (WebAuthn) Enrollment + Approval (Prototype)
+
+You can now enroll a real passkey locally and use it on the approval page.
+
+1. Open `http://localhost:3000/dev/passkeys`
+2. Select `usr_demo`, click `Enroll Passkey`
+3. Complete browser/device passkey prompt
+4. Create a payment request
+5. Open the approval link, then click `Approve with Passkey` or `Deny with Passkey`
+
+Notes:
+- Works best on `localhost` in Chrome/Safari with platform passkeys enabled
+- The legacy simulated approval form is still available as fallback

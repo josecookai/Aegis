@@ -220,6 +220,17 @@ describe('Aegis MVP prototype', () => {
     const updated = (afterRequeue.body.deliveries as Array<any>).find((d) => d.id === target.id);
     expect(updated?.status).toBe('pending');
   });
+
+  it('exposes passkey registration options for dev enrollment', async () => {
+    const api = request(runtime.app);
+    const page = await api.get('/dev/passkeys').expect(200);
+    expect(page.text).toContain('Dev Passkey Enrollment');
+
+    const optionsRes = await api.post('/dev/passkeys/register/options').send({ user_id: 'usr_demo' }).expect(200);
+    expect(optionsRes.body.options?.challenge).toBeTruthy();
+    expect(optionsRes.body.options?.rp?.name).toBeTruthy();
+    expect(optionsRes.body.options?.user?.name).toBe('demo.user@example.com');
+  });
 });
 
 function extractCookieValue(setCookie: string | string[] | undefined, name: string): string {

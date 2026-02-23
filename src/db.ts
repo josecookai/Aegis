@@ -184,6 +184,37 @@ function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_webhooks_due ON webhook_deliveries(status, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_magic_links_hash ON magic_links(token_hash);
     CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action_id);
+
+    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      credential_id TEXT NOT NULL UNIQUE,
+      public_key_b64 TEXT NOT NULL,
+      counter INTEGER NOT NULL DEFAULT 0,
+      device_type TEXT NOT NULL,
+      backed_up INTEGER NOT NULL DEFAULT 0,
+      transports_json TEXT NOT NULL DEFAULT '[]',
+      aaguid TEXT,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES end_users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS webauthn_challenges (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      action_id TEXT,
+      purpose TEXT NOT NULL,
+      challenge TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES end_users(id),
+      FOREIGN KEY (action_id) REFERENCES actions(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
+    CREATE INDEX IF NOT EXISTS idx_webauthn_challenges_user_purpose ON webauthn_challenges(user_id, purpose, created_at);
   `);
 }
 

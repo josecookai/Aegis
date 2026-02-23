@@ -7,6 +7,7 @@ import { NotificationService } from './services/notifications';
 import { ExecutionEngine } from './services/execution';
 import { WebhookSender } from './services/webhookSender';
 import { AegisService } from './services/aegis';
+import { WebAuthnService } from './services/webauthn';
 import { WorkerScheduler } from './workers';
 import { createApiRouter } from './routes/api';
 import { createWebRouter } from './routes/web';
@@ -28,6 +29,7 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
   const executionEngine = new ExecutionEngine();
   const webhookSender = new WebhookSender(config);
   const service = new AegisService(store, notifications, executionEngine, webhookSender, config);
+  const webauthn = new WebAuthnService(store, config);
   const workers = new WorkerScheduler(service);
   const testCallbackInbox: Array<{ headers: Record<string, string>; body: unknown; received_at: string }> = [];
 
@@ -50,7 +52,7 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     res.json({ callbacks: testCallbackInbox });
   });
 
-  app.use(createWebRouter(service));
+  app.use(createWebRouter(service, webauthn));
   app.use(createApiRouter(service));
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

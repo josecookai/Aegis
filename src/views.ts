@@ -88,6 +88,7 @@ export function renderApprovalPage(params: {
   endUser?: { id: string; email: string; display_name: string };
   token?: string;
   csrfToken?: string;
+  passkeyCount?: number;
   alreadyDecided?: boolean;
   decision?: { decision: 'approved' | 'denied'; source: string; submitted_at: string } | null;
 }): string {
@@ -143,6 +144,18 @@ export function renderApprovalPage(params: {
               <button class="primary" type="submit" name="decision" value="approve">Approve</button>
               <button class="danger" type="submit" name="decision" value="deny">Deny</button>
             </div>
+            ${
+              (params.passkeyCount ?? 0) > 0
+                ? `<div class="card" style="padding:12px; background:#f7fffd">
+                    <p><strong>Passkey available (${params.passkeyCount})</strong></p>
+                    <div class="actions">
+                      <button class="ghost" type="button" id="passkeyApproveBtn">Approve with Passkey</button>
+                      <button class="ghost" type="button" id="passkeyDenyBtn">Deny with Passkey</button>
+                    </div>
+                    <p class="small" id="passkeyStatus"></p>
+                  </div>`
+                : `<p class="small">No passkey enrolled yet. Enroll one from <a href="/dev/passkeys">/dev/passkeys</a>.</p>`
+            }
             <p class="small">Prototype note: real WebAuthn/OTP verification is represented as a decision source flag in this build.</p>
           </form>`
         }
@@ -151,7 +164,83 @@ export function renderApprovalPage(params: {
     <section class="card" style="margin-top:16px">
       <h3>Metadata</h3>
       <pre>${escapeHtml(metadataPretty)}</pre>
-    </section>`
+    </section>
+    ${
+      (params.passkeyCount ?? 0) > 0 && !decided
+        ? `<script>
+          const token = ${JSON.stringify(params.token)};
+          const csrf = ${JSON.stringify(params.csrfToken ?? '')};
+          const statusEl = document.getElementById('passkeyStatus');
+          const approveBtn = document.getElementById('passkeyApproveBtn');
+          const denyBtn = document.getElementById('passkeyDenyBtn');
+
+          function toBase64URL(bytes) {
+            const str = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+            return str.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
+          }
+          function fromBase64URL(input) {
+            const b64 = input.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((input.length + 3) % 4);
+            const bin = atob(b64);
+            return Uint8Array.from(bin, c => c.charCodeAt(0));
+          }
+          function publicKeyRequestOptionsFromJSON(opts) {
+            const out = { ...opts, challenge: fromBase64URL(opts.challenge) };
+            if (Array.isArray(out.allowCredentials)) {
+              out.allowCredentials = out.allowCredentials.map(c => ({ ...c, id: fromBase64URL(c.id) }));
+            }
+            return out;
+          }
+          function credentialToJSON(cred) {
+            return {
+              id: cred.id,
+              rawId: toBase64URL(cred.rawId),
+              type: cred.type,
+              authenticatorAttachment: cred.authenticatorAttachment || undefined,
+              clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+              response: {
+                clientDataJSON: toBase64URL(cred.response.clientDataJSON),
+                authenticatorData: toBase64URL(cred.response.authenticatorData),
+                signature: toBase64URL(cred.response.signature),
+                userHandle: cred.response.userHandle ? toBase64URL(cred.response.userHandle) : undefined,
+              },
+            };
+          }
+          async function submitWithPasskey(decision) {
+            if (!window.PublicKeyCredential || !navigator.credentials) {
+              statusEl.textContent = 'Passkey is not supported in this browser.';
+              return;
+            }
+            approveBtn.disabled = true; denyBtn.disabled = true;
+            statusEl.textContent = 'Preparing passkey challenge...';
+            try {
+              const optRes = await fetch('/approve/' + encodeURIComponent(token) + '/passkey/options', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ csrf }),
+              });
+              const optData = await optRes.json();
+              if (!optRes.ok) throw new Error(optData.message || optData.error || 'Failed to fetch passkey options');
+              statusEl.textContent = 'Waiting for passkey verification...';
+              const assertion = await navigator.credentials.get({ publicKey: publicKeyRequestOptionsFromJSON(optData.options) });
+              if (!assertion) throw new Error('Passkey canceled');
+              const res = await fetch('/approve/' + encodeURIComponent(token) + '/passkey-decision', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ csrf, decision, assertion: credentialToJSON(assertion) }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.message || data.error || 'Approval failed');
+              window.location.href = data.redirect_url || window.location.href;
+            } catch (err) {
+              statusEl.textContent = err && err.message ? err.message : String(err);
+              approveBtn.disabled = false; denyBtn.disabled = false;
+            }
+          }
+          approveBtn?.addEventListener('click', () => void submitWithPasskey('approve'));
+          denyBtn?.addEventListener('click', () => void submitWithPasskey('deny'));
+        </script>`
+        : ''
+    }`
   );
 }
 
@@ -251,4 +340,128 @@ export function renderEmailOutboxPage(emails: Array<Record<string, unknown>>): s
     })
     .join('');
   return layout('Dev Email Outbox', `<div class="grid"><div class="card"><h1>Dev Email Outbox</h1><p>Magic link emails are captured here in this MVP prototype.</p></div>${items || '<div class="card">No emails</div>'}</div>`);
+}
+
+export function renderPasskeyDevPage(params: {
+  users: Array<{ id: string; email: string; display_name: string }>;
+  selectedUserId: string;
+  passkeys: Array<Record<string, unknown>>;
+}): string {
+  const options = params.users
+    .map(
+      (u) =>
+        `<option value="${escapeHtml(u.id)}" ${u.id === params.selectedUserId ? 'selected' : ''}>${escapeHtml(u.display_name)} (${escapeHtml(
+          u.email
+        )})</option>`
+    )
+    .join('');
+  return layout(
+    'Dev Passkeys',
+    `<div class="grid">
+      <div class="card">
+        <h1>Dev Passkey Enrollment</h1>
+        <p>Enroll and verify a real WebAuthn passkey for a demo user (works on localhost with supported browsers).</p>
+        <div class="grid cols-2">
+          <label>User
+            <select id="userId">${options}</select>
+          </label>
+          <div class="actions" style="align-items:end">
+            <button id="enrollPasskeyBtn" class="primary" type="button">Enroll Passkey</button>
+            <button id="authPasskeyBtn" class="ghost" type="button">Test Passkey Auth</button>
+          </div>
+        </div>
+        <p id="passkeyDevStatus" class="small"></p>
+      </div>
+      <div class="card">
+        <h2>Existing Passkeys (${params.passkeys.length})</h2>
+        <pre>${escapeHtml(JSON.stringify(params.passkeys, null, 2))}</pre>
+      </div>
+    </div>
+    <script>
+      function toBase64URL(bytes) {
+        const str = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+        return str.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
+      }
+      function fromBase64URL(input) {
+        const b64 = input.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((input.length + 3) % 4);
+        const bin = atob(b64);
+        return Uint8Array.from(bin, c => c.charCodeAt(0));
+      }
+      function creationOptionsFromJSON(opts) {
+        const out = { ...opts, challenge: fromBase64URL(opts.challenge), user: { ...opts.user, id: fromBase64URL(opts.user.id) } };
+        if (Array.isArray(out.excludeCredentials)) out.excludeCredentials = out.excludeCredentials.map(c => ({ ...c, id: fromBase64URL(c.id) }));
+        return out;
+      }
+      function requestOptionsFromJSON(opts) {
+        const out = { ...opts, challenge: fromBase64URL(opts.challenge) };
+        if (Array.isArray(out.allowCredentials)) out.allowCredentials = out.allowCredentials.map(c => ({ ...c, id: fromBase64URL(c.id) }));
+        return out;
+      }
+      function credentialToJSON(cred) {
+        const base = {
+          id: cred.id,
+          rawId: toBase64URL(cred.rawId),
+          type: cred.type,
+          authenticatorAttachment: cred.authenticatorAttachment || undefined,
+          clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+        };
+        if (cred.response.attestationObject) {
+          return {
+            ...base,
+            response: {
+              clientDataJSON: toBase64URL(cred.response.clientDataJSON),
+              attestationObject: toBase64URL(cred.response.attestationObject),
+              transports: cred.response.getTransports ? cred.response.getTransports() : [],
+            },
+          };
+        }
+        return {
+          ...base,
+          response: {
+            clientDataJSON: toBase64URL(cred.response.clientDataJSON),
+            authenticatorData: toBase64URL(cred.response.authenticatorData),
+            signature: toBase64URL(cred.response.signature),
+            userHandle: cred.response.userHandle ? toBase64URL(cred.response.userHandle) : undefined,
+          },
+        };
+      }
+      async function enroll() {
+        const userId = document.getElementById('userId').value;
+        const status = document.getElementById('passkeyDevStatus');
+        status.textContent = 'Requesting registration options...';
+        try {
+          const optRes = await fetch('/dev/passkeys/register/options', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: userId }) });
+          const optData = await optRes.json();
+          if (!optRes.ok) throw new Error(optData.message || optData.error || 'Options failed');
+          const cred = await navigator.credentials.create({ publicKey: creationOptionsFromJSON(optData.options) });
+          const verifyRes = await fetch('/dev/passkeys/register/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: userId, response: credentialToJSON(cred) }) });
+          const verifyData = await verifyRes.json();
+          if (!verifyRes.ok) throw new Error(verifyData.message || verifyData.error || 'Verify failed');
+          status.textContent = 'Passkey enrolled: ' + (verifyData.credential_id || 'ok');
+          setTimeout(() => window.location.reload(), 500);
+        } catch (e) {
+          status.textContent = e && e.message ? e.message : String(e);
+        }
+      }
+      async function authTest() {
+        const userId = document.getElementById('userId').value;
+        const status = document.getElementById('passkeyDevStatus');
+        status.textContent = 'Requesting auth options...';
+        try {
+          const optRes = await fetch('/dev/passkeys/auth/options', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: userId }) });
+          const optData = await optRes.json();
+          if (!optRes.ok) throw new Error(optData.message || optData.error || 'Options failed');
+          const assertion = await navigator.credentials.get({ publicKey: requestOptionsFromJSON(optData.options) });
+          const verifyRes = await fetch('/dev/passkeys/auth/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: userId, response: credentialToJSON(assertion) }) });
+          const verifyData = await verifyRes.json();
+          if (!verifyRes.ok) throw new Error(verifyData.message || verifyData.error || 'Verify failed');
+          status.textContent = 'Passkey auth verified';
+        } catch (e) {
+          status.textContent = e && e.message ? e.message : String(e);
+        }
+      }
+      document.getElementById('enrollPasskeyBtn')?.addEventListener('click', () => void enroll());
+      document.getElementById('authPasskeyBtn')?.addEventListener('click', () => void authTest());
+    </script>`
+  );
 }

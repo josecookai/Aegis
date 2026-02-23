@@ -74,6 +74,32 @@ export interface ExecutionRecord {
   result_json: string;
 }
 
+export interface WebauthnCredentialRecord {
+  id: string;
+  user_id: string;
+  credential_id: string;
+  public_key_b64: string;
+  counter: number;
+  device_type: string;
+  backed_up: number;
+  transports_json: string;
+  aaguid: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  transports: string[];
+}
+
+export interface WebauthnChallengeRecord {
+  id: string;
+  user_id: string;
+  action_id: string | null;
+  purpose: string;
+  challenge: string;
+  expires_at: string;
+  consumed_at: string | null;
+  created_at: string;
+}
+
 export class AegisStore {
   constructor(private readonly db: Database.Database) {}
 
@@ -99,6 +125,12 @@ export class AegisStore {
   getEndUserById(userId: string): EndUserRecord | null {
     const row = this.db.prepare('SELECT * FROM end_users WHERE id = ?').get(userId) as EndUserRecord | undefined;
     return row ?? null;
+  }
+
+  resolveApprovalMagicLinkContext(rawToken: string): { userId: string; actionId: string } | null {
+    const resolved = this.resolveMagicLink(rawToken);
+    if (!resolved || resolved.purpose !== 'approval' || !resolved.actionId) return null;
+    return { userId: resolved.userId, actionId: resolved.actionId };
   }
 
   listEndUsers(): EndUserRecord[] {
@@ -301,6 +333,99 @@ export class AegisStore {
       'INSERT INTO magic_links (id, user_id, action_id, token_hash, purpose, expires_at, consumed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(magicLinkId, userId, actionId, tokenHash, purpose, expiresAt, null, nowIso());
     return { magicLinkId, token };
+  }
+
+  createWebauthnChallenge(opts: { userId: string; actionId: string | null; purpose: string; challenge: string; expiresAt: string }): WebauthnChallengeRecord {
+    const id = randomId('wchal');
+    const now = nowIso();
+    this.db
+      .prepare(
+        'INSERT INTO webauthn_challenges (id, user_id, action_id, purpose, challenge, expires_at, consumed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(id, opts.userId, opts.actionId, opts.purpose, opts.challenge, opts.expiresAt, null, now);
+    const row = this.db.prepare('SELECT * FROM webauthn_challenges WHERE id = ?').get(id) as WebauthnChallengeRecord;
+    return row;
+  }
+
+  getLatestActiveWebauthnChallenge(userId: string, purpose: string, actionId?: string | null): WebauthnChallengeRecord | null {
+    const args: unknown[] = [userId, purpose];
+    let sql =
+      `SELECT * FROM webauthn_challenges
+       WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL AND datetime(expires_at) > datetime('now')`;
+    if (actionId !== undefined) {
+      sql += ' AND action_id IS ?';
+      args.push(actionId);
+    }
+    sql += ' ORDER BY datetime(created_at) DESC LIMIT 1';
+    const row = this.db.prepare(sql).get(...args) as WebauthnChallengeRecord | undefined;
+    return row ?? null;
+  }
+
+  consumeWebauthnChallenge(challengeId: string): void {
+    this.db.prepare('UPDATE webauthn_challenges SET consumed_at = COALESCE(consumed_at, ?) WHERE id = ?').run(nowIso(), challengeId);
+  }
+
+  listPasskeysForUser(userId: string): WebauthnCredentialRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM webauthn_credentials WHERE user_id = ? ORDER BY datetime(created_at) DESC')
+      .all(userId) as Array<Omit<WebauthnCredentialRecord, 'transports'>>;
+    return rows.map((r) => ({ ...r, transports: safeJsonParse<string[]>(r.transports_json, []) }));
+  }
+
+  countPasskeysForUser(userId: string): number {
+    const row = this.db.prepare('SELECT COUNT(1) as c FROM webauthn_credentials WHERE user_id = ?').get(userId) as { c: number };
+    return row.c;
+  }
+
+  getPasskeyByCredentialId(credentialId: string): WebauthnCredentialRecord | null {
+    const row = this.db
+      .prepare('SELECT * FROM webauthn_credentials WHERE credential_id = ?')
+      .get(credentialId) as Omit<WebauthnCredentialRecord, 'transports'> | undefined;
+    return row ? { ...row, transports: safeJsonParse<string[]>(row.transports_json, []) } : null;
+  }
+
+  upsertPasskeyCredential(opts: {
+    userId: string;
+    credentialId: string;
+    publicKeyB64: string;
+    counter: number;
+    deviceType: string;
+    backedUp: boolean;
+    transports: string[];
+    aaguid?: string | null;
+    createdAt: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO webauthn_credentials
+         (id, user_id, credential_id, public_key_b64, counter, device_type, backed_up, transports_json, aaguid, created_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(credential_id) DO UPDATE SET
+           user_id=excluded.user_id,
+           public_key_b64=excluded.public_key_b64,
+           counter=excluded.counter,
+           device_type=excluded.device_type,
+           backed_up=excluded.backed_up,
+           transports_json=excluded.transports_json,
+           aaguid=excluded.aaguid`
+      )
+      .run(
+        randomId('wcred'),
+        opts.userId,
+        opts.credentialId,
+        opts.publicKeyB64,
+        opts.counter,
+        opts.deviceType,
+        opts.backedUp ? 1 : 0,
+        JSON.stringify(opts.transports ?? []),
+        opts.aaguid ?? null,
+        opts.createdAt,
+        null
+      );
+  }
+
+  updatePasskeyCounterAndUsage(id: string, newCounter: number): void {
+    this.db.prepare('UPDATE webauthn_credentials SET counter = ?, last_used_at = ? WHERE id = ?').run(newCounter, nowIso(), id);
   }
 
   resolveMagicLink(rawToken: string): ResolvedMagicLink | null {
