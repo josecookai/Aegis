@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { ZodError } from 'zod';
 import { requestActionSchema, webhookTestSchema } from '../schemas';
 import { DomainError, AegisService } from '../services/aegis';
+import { SandboxFaultService, CardFaultMode, CryptoFaultMode, FaultScope } from '../services/sandboxFaults';
 import { safeJsonParse } from '../lib/crypto';
 
-export function createApiRouter(service: AegisService): Router {
+export function createApiRouter(service: AegisService, sandboxFaults: SandboxFaultService): Router {
   const router = Router();
 
   router.use('/v1', (req, res, next) => {
@@ -148,6 +149,36 @@ export function createApiRouter(service: AegisService): Router {
     } catch (error) {
       next(error);
     }
+  });
+
+  router.get('/api/dev/sandbox/faults', (_req, res) => {
+    res.json({ sandbox_faults: sandboxFaults.getSnapshot() });
+  });
+
+  router.post('/api/dev/sandbox/faults', (req, res, next) => {
+    try {
+      const rail = String(req.body?.rail ?? '');
+      const mode = String(req.body?.mode ?? '');
+      const scope = (String(req.body?.scope ?? 'once') as FaultScope);
+      if (!['once', 'sticky'].includes(scope)) {
+        throw new DomainError('INVALID_SCOPE', 'scope must be once or sticky', 400);
+      }
+      if (rail === 'card') {
+        if (!['none', 'decline', 'timeout'].includes(mode)) throw new DomainError('INVALID_MODE', 'Invalid card mode', 400);
+        return res.json({ sandbox_faults: sandboxFaults.setCardFault(mode as CardFaultMode, scope) });
+      }
+      if (rail === 'crypto') {
+        if (!['none', 'revert', 'timeout'].includes(mode)) throw new DomainError('INVALID_MODE', 'Invalid crypto mode', 400);
+        return res.json({ sandbox_faults: sandboxFaults.setCryptoFault(mode as CryptoFaultMode, scope) });
+      }
+      throw new DomainError('INVALID_RAIL', 'rail must be card or crypto', 400);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/api/dev/sandbox/faults/reset', (_req, res) => {
+    res.json({ sandbox_faults: sandboxFaults.resetAll() });
   });
 
   router.use((error: unknown, _req: any, res: any, _next: any) => {

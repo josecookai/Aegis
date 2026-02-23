@@ -3,11 +3,12 @@ import { Router } from 'express';
 import { randomToken } from '../lib/crypto';
 import { DomainError, AegisService } from '../services/aegis';
 import { AdminAuthService } from '../services/adminAuth';
+import { SandboxFaultService, FaultScope } from '../services/sandboxFaults';
 import { WebAuthnService } from '../services/webauthn';
-import { renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage } from '../views';
+import { renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage } from '../views';
 import { DecisionSource } from '../types';
 
-export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService): Router {
+export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService, sandboxFaults: SandboxFaultService): Router {
   const router = Router();
 
   router.get('/login', (req, res) => {
@@ -161,6 +162,37 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
       .listWebhookDeliveries({ actionId, status, limit: 200 })
       .map((d: any) => ({ ...d, payload: JSON.parse(String(d.payload_json ?? '{}')) }));
     res.type('html').send(renderWebhookDevPage({ deliveries, filters: { action_id: actionId, status } }));
+  });
+
+  router.get('/dev/sandbox', (req, res) => {
+    const message = typeof req.query.message === 'string' ? req.query.message : undefined;
+    res.type('html').send(renderSandboxFaultsPage({ snapshot: sandboxFaults.getSnapshot(), message }));
+  });
+
+  router.post('/dev/sandbox/set', (req, res, next) => {
+    try {
+      const rail = String(req.body?.rail ?? '');
+      const mode = String(req.body?.mode ?? '');
+      const scope = (String(req.body?.scope ?? 'once') as FaultScope);
+      if (!['once', 'sticky'].includes(scope)) throw new DomainError('INVALID_SCOPE', 'Invalid scope', 400);
+      if (rail === 'card') {
+        if (!['none', 'decline', 'timeout'].includes(mode)) throw new DomainError('INVALID_MODE', 'Invalid card mode', 400);
+        sandboxFaults.setCardFault(mode as any, scope);
+      } else if (rail === 'crypto') {
+        if (!['none', 'revert', 'timeout'].includes(mode)) throw new DomainError('INVALID_MODE', 'Invalid crypto mode', 400);
+        sandboxFaults.setCryptoFault(mode as any, scope);
+      } else {
+        throw new DomainError('INVALID_RAIL', 'Invalid rail', 400);
+      }
+      res.redirect(`/dev/sandbox?message=${encodeURIComponent(`Set ${rail}:${mode} (${scope})`)}`);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/dev/sandbox/reset', (_req, res) => {
+    sandboxFaults.resetAll();
+    res.redirect('/dev/sandbox?message=Sandbox%20faults%20reset');
   });
 
   router.post('/dev/webhooks/:deliveryId/requeue', (req, res, next) => {

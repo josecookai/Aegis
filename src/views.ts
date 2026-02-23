@@ -324,6 +324,7 @@ export function renderAdminPage(data: Record<string, unknown>): string {
         <p class="small">Now: ${escapeHtml(String(data.now ?? ''))}</p>
         <div class="actions">
           <a href="/dev/webhooks">Webhook Deliveries UI</a>
+          <a href="/dev/sandbox">Sandbox Fault Injection</a>
           <form method="post" action="/logout" style="display:inline">
             <button class="ghost" type="submit">Logout</button>
           </form>
@@ -559,6 +560,54 @@ export function renderWebhookDevPage(params: {
           <thead><tr><th>ID</th><th>Status</th><th>Event</th><th>Action</th><th>Attempts</th><th>HTTP</th><th>Error</th><th>Next Try</th><th>Actions</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="9">No deliveries</td></tr>'}</tbody>
         </table>
+      </div>
+    </div>`
+  );
+}
+
+export function renderSandboxFaultsPage(params: {
+  snapshot: Record<string, any>;
+  message?: string;
+}): string {
+  const card = params.snapshot.card ?? {};
+  const crypto = params.snapshot.crypto ?? {};
+  return layout(
+    'Dev Sandbox Faults',
+    `<div class="grid">
+      <div class="card">
+        <h1>Sandbox Fault Injection</h1>
+        <p>Inject deterministic mock failures/timeouts for the next execution(s).</p>
+        ${params.message ? `<p><strong>${escapeHtml(params.message)}</strong></p>` : ''}
+        <div class="actions">
+          <form method="post" action="/dev/sandbox/reset"><button class="danger" type="submit">Reset All</button></form>
+          <a href="/admin">Back to Admin</a>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="card">
+          <h2>Card Rail</h2>
+          <p>Current: <span class="status">${escapeHtml(String(card.mode ?? 'none'))}</span> scope=${escapeHtml(String(card.scope ?? 'once'))} remaining=${escapeHtml(String(card.remaining ?? 0))}</p>
+          <div class="actions">
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="card"/><input type="hidden" name="mode" value="decline"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Card Decline</button></form>
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="card"/><input type="hidden" name="mode" value="timeout"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Card Timeout</button></form>
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="card"/><input type="hidden" name="mode" value="decline"/><input type="hidden" name="scope" value="sticky"/><button class="ghost" type="submit">Sticky Card Decline</button></form>
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="card"/><input type="hidden" name="mode" value="none"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Clear Card Fault</button></form>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Crypto Rail</h2>
+          <p>Current: <span class="status">${escapeHtml(String(crypto.mode ?? 'none'))}</span> scope=${escapeHtml(String(crypto.scope ?? 'once'))} remaining=${escapeHtml(String(crypto.remaining ?? 0))}</p>
+          <div class="actions">
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="crypto"/><input type="hidden" name="mode" value="revert"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Crypto Revert</button></form>
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="crypto"/><input type="hidden" name="mode" value="timeout"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Crypto Timeout</button></form>
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="crypto"/><input type="hidden" name="mode" value="revert"/><input type="hidden" name="scope" value="sticky"/><button class="ghost" type="submit">Sticky Crypto Revert</button></form>
+            <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="crypto"/><input type="hidden" name="mode" value="none"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Clear Crypto Fault</button></form>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Snapshot</h3>
+        <pre>${escapeHtml(JSON.stringify(params.snapshot, null, 2))}</pre>
       </div>
     </div>`
   );

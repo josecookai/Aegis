@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { DomainError, AegisService } from '../services/aegis';
 import { DecisionSource } from '../types';
+import { ZodError } from 'zod';
 
 const ALLOWED_APP_DECISION_SOURCES: DecisionSource[] = ['app_biometric', 'web_magic_link'];
 
@@ -67,6 +68,16 @@ export function createAppRouter(service: AegisService): Router {
     } catch (error) {
       next(error);
     }
+  });
+
+  router.use((error: unknown, _req: any, res: any, _next: any) => {
+    if (error instanceof DomainError) {
+      return res.status(error.httpStatus).json({ error: error.code, message: error.message });
+    }
+    if (error instanceof ZodError) {
+      return res.status(400).json({ error: 'INVALID_REQUEST', details: error.issues });
+    }
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Unexpected error' });
   });
 
   return router;

@@ -8,6 +8,7 @@ import { ExecutionEngine } from './services/execution';
 import { WebhookSender } from './services/webhookSender';
 import { AegisService } from './services/aegis';
 import { AdminAuthService } from './services/adminAuth';
+import { SandboxFaultService } from './services/sandboxFaults';
 import { WebAuthnService } from './services/webauthn';
 import { WorkerScheduler } from './workers';
 import { createApiRouter } from './routes/api';
@@ -27,8 +28,9 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
   const config = { ...loadConfig(), ...(partialConfig ?? {}) };
   const { db } = createDb(config.dbPath);
   const store = new AegisStore(db);
+  const sandboxFaults = new SandboxFaultService();
   const notifications = new NotificationService(store, config);
-  const executionEngine = new ExecutionEngine();
+  const executionEngine = new ExecutionEngine(sandboxFaults);
   const webhookSender = new WebhookSender(config);
   const service = new AegisService(store, notifications, executionEngine, webhookSender, config);
   const adminAuth = new AdminAuthService(config);
@@ -71,9 +73,9 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     res.json({ callbacks: testCallbackInbox });
   });
 
-  app.use(createWebRouter(service, webauthn, adminAuth));
+  app.use(createWebRouter(service, webauthn, adminAuth, sandboxFaults));
   app.use(createAppRouter(service));
-  app.use(createApiRouter(service));
+  app.use(createApiRouter(service, sandboxFaults));
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error(error);

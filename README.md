@@ -250,6 +250,7 @@ Open:
 - `http://localhost:3000/admin` (admin dashboard)
 - `http://localhost:3000/dev/emails` (dev email outbox)
 - `http://localhost:3000/dev/webhooks` (webhook replay UI)
+- `http://localhost:3000/dev/sandbox` (sandbox fault injection UI)
 
 ## Admin Login (New)
 
@@ -328,6 +329,18 @@ These now require admin login (browser cookie session).
 - Open `/dev/webhooks`
 - Filter by `action_id` or status
 - Click `Requeue` to manually retry a delivery (uses existing dev replay API)
+
+### Sandbox Fault Injection (New)
+
+Use `/dev/sandbox` to inject deterministic mock failures into the next execution(s):
+- Card: `decline`, `timeout`
+- Crypto: `revert`, `timeout`
+- Scope: `once` or `sticky`
+
+API equivalents:
+- `GET /api/dev/sandbox/faults`
+- `POST /api/dev/sandbox/faults`
+- `POST /api/dev/sandbox/faults/reset`
 
 ## New Feature: Real Passkey (WebAuthn) Enrollment + Approval (Prototype)
 

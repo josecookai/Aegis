@@ -1,4 +1,5 @@
 import { randomId } from '../lib/crypto';
+import { SandboxFaultService } from './sandboxFaults';
 import { ActionRecord, ExecutionResult, PaymentMethodRecord } from '../types';
 
 function parseAmount(value: string): number {
@@ -10,6 +11,8 @@ function parseAmount(value: string): number {
 }
 
 export class ExecutionEngine {
+  constructor(private readonly sandboxFaults?: SandboxFaultService) {}
+
   async execute(action: ActionRecord, paymentMethod: PaymentMethodRecord): Promise<ExecutionResult> {
     if (action.payment_rail !== paymentMethod.rail) {
       return {
@@ -28,6 +31,28 @@ export class ExecutionEngine {
   }
 
   private async executeCard(action: ActionRecord, paymentMethod: PaymentMethodRecord): Promise<ExecutionResult> {
+    const injected = this.sandboxFaults?.consumeForRail('card');
+    if (injected === 'decline') {
+      return {
+        success: false,
+        rail: 'card',
+        provider: 'mock_psp',
+        errorCode: 'PSP_DECLINED',
+        errorMessage: 'Sandbox injected PSP decline',
+        raw: { sandbox_injected_fault: 'card_decline' },
+      };
+    }
+    if (injected === 'timeout') {
+      return {
+        success: false,
+        rail: 'card',
+        provider: 'mock_psp',
+        errorCode: 'TIMEOUT',
+        errorMessage: 'Sandbox injected card timeout',
+        raw: { sandbox_injected_fault: 'card_timeout' },
+      };
+    }
+
     parseAmount(action.amount);
     const ref = action.recipient_reference;
     if (!(ref.startsWith('merchant_api:') || ref.startsWith('payment_link:'))) {
@@ -76,6 +101,28 @@ export class ExecutionEngine {
   }
 
   private async executeCrypto(action: ActionRecord, paymentMethod: PaymentMethodRecord): Promise<ExecutionResult> {
+    const injected = this.sandboxFaults?.consumeForRail('crypto');
+    if (injected === 'revert') {
+      return {
+        success: false,
+        rail: 'crypto',
+        provider: 'mock_mpc',
+        errorCode: 'CHAIN_REVERTED',
+        errorMessage: 'Sandbox injected chain revert',
+        raw: { sandbox_injected_fault: 'crypto_revert' },
+      };
+    }
+    if (injected === 'timeout') {
+      return {
+        success: false,
+        rail: 'crypto',
+        provider: 'mock_mpc',
+        errorCode: 'TIMEOUT',
+        errorMessage: 'Sandbox injected crypto timeout',
+        raw: { sandbox_injected_fault: 'crypto_timeout' },
+      };
+    }
+
     const amount = parseAmount(action.amount);
     const ref = action.recipient_reference;
     if (!(ref.startsWith('address:0x') || ref.startsWith('wallet:'))) {

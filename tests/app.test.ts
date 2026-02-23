@@ -273,6 +273,93 @@ describe('Aegis MVP prototype', () => {
     await api.post(`/dev/webhooks/${deliveryId}/requeue`).set('Cookie', [adminCookie]).expect(302);
   });
 
+  it('supports sandbox fault injection (one-shot timeout) via API and UI', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    await api
+      .post('/api/dev/sandbox/faults')
+      .set('Cookie', [adminCookie])
+      .send({ rail: 'card', mode: 'timeout', scope: 'once' })
+      .expect(200);
+
+    const snapshot1 = await api.get('/api/dev/sandbox/faults').set('Cookie', [adminCookie]).expect(200);
+    expect(snapshot1.body.sandbox_faults?.card?.mode).toBe('timeout');
+    expect(snapshot1.body.sandbox_faults?.card?.scope).toBe('once');
+
+    const first = await createAndApproveCardAction(api, adminCookie, baseUrl, 't_sandbox_card_timeout_1');
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
+    const firstFinal = await api.get(`/v1/actions/${first}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(firstFinal.body.action.status).toBe('failed');
+    expect(firstFinal.body.action.execution?.error_code).toBe('TIMEOUT');
+
+    const snapshot2 = await api.get('/api/dev/sandbox/faults').set('Cookie', [adminCookie]).expect(200);
+    expect(snapshot2.body.sandbox_faults?.card?.mode).toBe('none');
+
+    const second = await createAndApproveCardAction(api, adminCookie, baseUrl, 't_sandbox_card_timeout_2');
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
+    const secondFinal = await api.get(`/v1/actions/${second}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(secondFinal.body.action.status).toBe('succeeded');
+
+    const sandboxPage = await api.get('/dev/sandbox').set('Cookie', [adminCookie]).expect(200);
+    expect(sandboxPage.text).toContain('Sandbox Fault Injection');
+    await api
+      .post('/dev/sandbox/set')
+      .set('Cookie', [adminCookie])
+      .type('form')
+      .send({ rail: 'crypto', mode: 'revert', scope: 'sticky' })
+      .expect(302);
+    const snapshot3 = await api.get('/api/dev/sandbox/faults').set('Cookie', [adminCookie]).expect(200);
+    expect(snapshot3.body.sandbox_faults?.crypto?.mode).toBe('revert');
+    await api.post('/dev/sandbox/reset').set('Cookie', [adminCookie]).type('form').send({}).expect(302);
+  });
+
+  it('app approval API: GET approval by token and POST decision with app_biometric', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_app_approval_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: `${baseUrl}/_test/callback`,
+        details: {
+          amount: '25.00',
+          currency: 'USD',
+          recipient_name: 'App Biometric Merchant',
+          description: 'App approval flow test',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:app_biometric',
+        },
+      })
+      .expect(201);
+
+    const approvalUrl = String(create.body.links.approval_url);
+    const token = approvalUrl.replace(/^.*\/approve\//, '').replace(/\/$/, '');
+    expect(token).toBeTruthy();
+
+    const getApproval = await api.get(`/api/app/approval?token=${encodeURIComponent(token)}`).expect(200);
+    expect(getApproval.body.valid).toBe(true);
+    expect(getApproval.body.already_decided).toBe(false);
+    expect(getApproval.body.action.details?.amount).toBe('25.00');
+    expect(getApproval.body.end_user?.email).toBeTruthy();
+
+    await api
+      .post('/api/app/approval/decision')
+      .set('Content-Type', 'application/json')
+      .send({ token, decision: 'approve', decision_source: 'app_biometric' })
+      .expect(200);
+
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
+
+    const actionId = String(create.body.action.action_id);
+    const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(final.body.action.status).toBe('succeeded');
+  });
+
   it('exposes passkey registration options for dev enrollment', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);
@@ -301,6 +388,31 @@ async function adminLogin(api: any): Promise<string> {
   const cookie = extractCookieValue(res.headers['set-cookie'], 'aegis_admin_session');
   if (!cookie) throw new Error('missing admin session cookie');
   return `aegis_admin_session=${cookie}`;
+}
+
+async function createAndApproveCardAction(api: any, adminCookie: string, baseUrl: string, idempotencyKey: string): Promise<string> {
+  const create = await api
+    .post('/v1/request_action')
+    .set('x-aegis-api-key', 'aegis_demo_agent_key')
+    .send({
+      idempotency_key: idempotencyKey,
+      end_user_id: 'usr_demo',
+      action_type: 'payment',
+      callback_url: `${baseUrl}/_test/callback`,
+      details: {
+        amount: '11.00',
+        currency: 'USD',
+        recipient_name: 'Sandbox Merchant',
+        description: 'Sandbox fault test',
+        payment_rail: 'card',
+        payment_method_preference: 'card_default',
+        recipient_reference: 'merchant_api:sandbox',
+      },
+    })
+    .expect(201);
+  const actionId = String(create.body.action.action_id);
+  await api.post(`/api/dev/actions/${actionId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'approve' }).expect(200);
+  return actionId;
 }
 
 function extractHidden(html: string, name: string): string {
