@@ -13,3 +13,7 @@ export function determineApproveDecisionSource(params: {
   }
   return { proceed: true, source: 'app_biometric' };
 }
+
+export function determineDenyDecisionSource(): AppDecisionSource {
+  return 'web_magic_link';
+}

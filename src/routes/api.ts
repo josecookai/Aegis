@@ -206,12 +206,19 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
   // ─── Dev: Stripe test card setup ───────────────────────────────────
   router.post('/api/dev/stripe/setup-test-card', async (req, res, next) => {
     try {
+      const cardNumber = String(req.body?.card_number ?? '4242424242424242').replace(/\s+/g, '');
+      if (cardNumber !== '4242424242424242') {
+        throw new DomainError(
+          'UNSUPPORTED_TEST_CARD',
+          'Only card_number 4242424242424242 is supported by this dev endpoint currently',
+          400
+        );
+      }
       const config = service.getConfig();
       if (!config.stripeSecretKey) {
         throw new DomainError('STRIPE_NOT_CONFIGURED', 'Set STRIPE_SECRET_KEY env var to enable Stripe', 400);
       }
       const userId = String(req.body?.user_id ?? 'usr_demo');
-      const cardNumber = String(req.body?.card_number ?? '4242424242424242');
       const stripe = new Stripe(config.stripeSecretKey, { apiVersion: '2025-01-27.acacia' as any });
 
       const store = service.getStore();

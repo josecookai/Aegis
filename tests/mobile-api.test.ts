@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { pickApiErrorMessage } from '../src/mobile/apiError';
-import { determineApproveDecisionSource } from '../src/mobile/approvalDecision';
+import { determineApproveDecisionSource, determineDenyDecisionSource } from '../src/mobile/approvalDecision';
 
 describe('mobile API helper and approval decision logic', () => {
   it('preserves invalid token reason from app approval API payload', async () => {
@@ -20,5 +20,9 @@ describe('mobile API helper and approval decision logic', () => {
       proceed: true,
       source: 'app_biometric',
     });
+  });
+
+  it('uses a non-biometric decision source for deny actions', () => {
+    expect(determineDenyDecisionSource()).toBe('web_magic_link');
   });
 });

@@ -449,8 +449,8 @@ describe('Aegis MVP prototype', () => {
 
     const wrongUser = await api
       .get(`/api/app/approval?action_id=${actionId}&user_id=usr_other`)
-      .expect(400);
-    expect(wrongUser.body.valid).toBe(false);
+      .expect(403);
+    expect(wrongUser.body.error).toBe('INVALID_USER');
 
     await api
       .post('/api/app/approval/decision')
@@ -685,6 +685,53 @@ describe('Aegis MVP prototype', () => {
     expect(optionsRes.body.options?.challenge).toBeTruthy();
     expect(optionsRes.body.options?.rp?.name).toBeTruthy();
     expect(optionsRes.body.options?.user?.name).toBe('demo.user@example.com');
+  });
+
+  it('rejects action_id mobile approval flows for inactive users', async () => {
+    const api = request(runtime.app);
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_inactive_user_action_id_path',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: `${baseUrl}/_test/callback`,
+        details: {
+          amount: '11.00',
+          currency: 'USD',
+          recipient_name: 'Inactive User Merchant',
+          description: 'inactive user action-id path',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:inactive_user_case',
+        },
+      })
+      .expect(201);
+
+    const actionId = String(create.body.action.action_id);
+    runtime.service.getStore().getRawDb().prepare('UPDATE end_users SET status = ? WHERE id = ?').run('inactive', 'usr_demo');
+    try {
+      await api.get(`/api/app/approval?action_id=${encodeURIComponent(actionId)}&user_id=usr_demo`).expect(403);
+      await api
+        .post('/api/app/approval/decision')
+        .send({ action_id: actionId, user_id: 'usr_demo', decision: 'approve', decision_source: 'web_magic_link' })
+        .expect(403);
+    } finally {
+      runtime.service.getStore().getRawDb().prepare('UPDATE end_users SET status = ? WHERE id = ?').run('active', 'usr_demo');
+    }
+  });
+
+  it('validates unsupported card_number before Stripe setup call', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const res = await api
+      .post('/api/dev/stripe/setup-test-card')
+      .set('Cookie', [adminCookie])
+      .send({ user_id: 'usr_demo', card_number: '4000000000000002' })
+      .expect(400);
+
+    expect(res.body.error).toBe('UNSUPPORTED_TEST_CARD');
   });
 });
 

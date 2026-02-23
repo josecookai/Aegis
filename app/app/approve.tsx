@@ -16,7 +16,7 @@ import {
   DEFAULT_USER_ID,
   type ApprovalResponse,
 } from '../lib/api';
-import { determineApproveDecisionSource } from '../lib/approvalDecision';
+import { determineApproveDecisionSource, determineDenyDecisionSource } from '../lib/approvalDecision';
 
 type ResultState = 'approved' | 'denied' | null;
 
@@ -101,7 +101,7 @@ export default function ApproveScreen() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await doSubmit('deny', 'web_magic_link');
+      await doSubmit('deny', determineDenyDecisionSource());
       setResultState('denied');
     } catch (e) {
       setSubmitError((e as Error).message);
