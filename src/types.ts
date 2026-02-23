@@ -36,6 +36,8 @@ export type WebhookEventType =
 export type ExecutionFailureCode =
   | 'PSP_DECLINED'
   | 'PSP_REQUIRES_ACTION'
+  | 'PSP_INCOMPLETE'
+  | 'PSP_ERROR'
   | 'CHAIN_REVERTED'
   | 'INSUFFICIENT_FUNDS'
   | 'TIMEOUT'
@@ -124,6 +126,7 @@ export interface ActionApiResponse {
   details: ActionDetailsInput;
   callback_url: string;
   expires_at: string;
+  created_at: string;
   metadata: Record<string, unknown>;
   audit_count?: number;
     execution?: {

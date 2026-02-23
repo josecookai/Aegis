@@ -167,6 +167,86 @@ export function renderHomePage(): string {
         </div>
       </section>
 
+      <section class="card" id="integrations">
+        <h2>3-Minute Integration Guides (Agent-First)</h2>
+        <p>In 2026, developers do not want a 50-page API manual first. They want to know one thing: <strong>“How do I plug this into my agent loop?”</strong> Start here.</p>
+        <div class="grid cols-2">
+          <div class="card" style="border-color:#dbe5fb; background:linear-gradient(180deg,#ffffff,#f8fbff);">
+            <div class="badge" style="background:#edf3ff;color:#1d4ed8;border-color:#bfdbfe;">For Manus Developers</div>
+            <h3>Build an “Autonomous Payment” Skill</h3>
+            <p>Manus excels at sandbox execution. Aegis gives it a safe payment gateway so it can complete a full loop from research to purchase without exposing credentials.</p>
+            <p><strong>Step 1: Register an Aegis Skill in <code>SKILL.md</code></strong></p>
+            <pre><code>## Skill: Aegis Payments
+**Description**: Allow Manus to buy goods or book services through Aegis in a controlled environment.
+**Required API**: \`AEGIS_API_KEY\` (set in Manus Environment Variables)</code></pre>
+            <p><strong>Step 2: Add the core tool in your Manus sandbox (Python)</strong></p>
+            <pre><code>import aegis_pay
+
+gateway = aegis_pay.Client(api_key=\"AEGIS_API_KEY\")
+
+response = gateway.request_payment(
+    intent=\"Buy the hardcover edition of 'AI 2026' recommended by A16Z\",
+    amount=49.9,
+    currency=\"USD\",
+    merchant=\"Amazon\"
+)
+
+print(response.message)  # WAITING_FOR_AUTH: Check phone / watch</code></pre>
+            <p><strong>Step 3: Manus closes the loop automatically</strong></p>
+            <p class="small">When Aegis returns a waiting state, Manus prompts the user to approve. Once approved on phone/watch, Manus resumes and finalizes the order.</p>
+          </div>
+
+          <div class="card" style="border-color:#dbe5fb; background:#fff;">
+            <div class="badge" style="background:#edf7ff;color:#075985;border-color:#bae6fd;">For OpenClaw Developers</div>
+            <h3>Add a “Financial Control” Tool</h3>
+            <p>OpenClaw (ex-Moltbot) focuses on local control and multi-channel automation. Aegis lets your Telegram/Slack bot pay safely while keys remain in Aegis’ secured execution boundary.</p>
+            <p><strong>Step 1: Configure <code>~/.openclaw/tools.json</code></strong></p>
+            <pre><code>{
+  \"name\": \"aegis_secure_pay\",
+  \"description\": \"Pay via Aegis with ETH/SOL or card rails\",
+  \"parameters\": {
+    \"type\": \"object\",
+    \"properties\": {
+      \"asset\": { \"type\": \"string\", \"enum\": [\"USDT\", \"SOL\", \"VISA\"] },
+      \"amount\": { \"type\": \"number\" }
+    }
+  }
+}</code></pre>
+            <p><strong>Step 2: Define policy-as-code</strong></p>
+            <pre><code>Allow OpenClaw to pay up to $20/month for github.com subscriptions.
+Anything above requires approval on Apple Watch or phone.</code></pre>
+            <p><strong>Step 3: Real-time operator interaction</strong></p>
+            <pre><code>User: \"OpenClaw, renew next month's Copilot.\"
+OpenClaw: \"Requesting $10 via Aegis. Please confirm on your watch or phone.\"
+User: (double-clicks watch)
+OpenClaw: \"Payment succeeded. Subscription renewed.\"</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Integration Philosophy</h2>
+        <p>From your UI/UX report: the landing page should feel less like a static brochure and more like a developer playground. This section is the first step: concrete, copy-pasteable integration paths for the agents developers are actually using.</p>
+        <div class="grid cols-2">
+          <div>
+            <h3>What developers need first</h3>
+            <ul style="margin:0; padding-left:18px; color:var(--muted);">
+              <li>One concrete integration path</li>
+              <li>A minimal code example</li>
+              <li>A clear approval/runtime behavior model</li>
+            </ul>
+          </div>
+          <div>
+            <h3>What Aegis should show upfront</h3>
+            <ul style="margin:0; padding-left:18px; color:var(--muted);">
+              <li>How an agent waits for human authorization</li>
+              <li>How policies and limits work</li>
+              <li>How callbacks resume agent execution</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section class="grid cols-2">
         <div class="card">
           <h2>Security posture (MVP)</h2>
