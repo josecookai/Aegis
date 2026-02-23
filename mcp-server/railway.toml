@@ -8,6 +8,6 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "npm run build && npm run start:http"
+startCommand = "npm run start:http"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
