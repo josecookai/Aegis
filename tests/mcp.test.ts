@@ -62,6 +62,21 @@ describe('Aegis MCP integration', () => {
     expect(status.action.details.recipient_name).toBe('MCP Test Merchant');
   });
 
+  it('creates a crypto payment request with rail-consistent defaults', async () => {
+    const created = await client.requestPayment({
+      amount: '5.00',
+      currency: 'USDC',
+      recipient_name: 'Crypto Merchant',
+      description: 'MCP crypto payload test',
+      payment_rail: 'crypto',
+    });
+
+    expect(created.action.status).toBe('awaiting_approval');
+    expect(created.action.details.payment_rail).toBe('crypto');
+    expect(created.action.details.payment_method_preference).toBe('crypto_default');
+    expect(String(created.action.details.recipient_reference)).toMatch(/^wallet:/);
+  });
+
   it('cancels a pending payment request', async () => {
     const created = await client.requestPayment({
       amount: '25.00',

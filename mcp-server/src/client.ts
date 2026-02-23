@@ -57,6 +57,16 @@ export class AegisClient {
 
   async requestPayment(params: RequestPaymentParams): Promise<ActionResponse> {
     const idempotencyKey = `mcp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const railDefaults =
+      params.payment_rail === 'crypto'
+        ? {
+            payment_method_preference: 'crypto_default',
+            recipient_reference: 'wallet:mcp',
+          }
+        : {
+            payment_method_preference: 'card_default',
+            recipient_reference: 'merchant_api:mcp',
+          };
     const res = await fetch(`${this.baseUrl}/v1/request_action`, {
       method: 'POST',
       headers: { ...this.headers(), 'Idempotency-Key': idempotencyKey },
@@ -70,8 +80,8 @@ export class AegisClient {
           recipient_name: params.recipient_name,
           description: params.description,
           payment_rail: params.payment_rail,
-          payment_method_preference: 'card_default',
-          recipient_reference: 'merchant_api:mcp',
+          payment_method_preference: railDefaults.payment_method_preference,
+          recipient_reference: railDefaults.recipient_reference,
         },
       }),
     });

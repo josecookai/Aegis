@@ -76,7 +76,14 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
 
   app.post('/api/cron/tick', async (req, res) => {
     const secret = process.env.CRON_SECRET;
+    const allowInsecureCron =
+      process.env.NODE_ENV === 'test' ||
+      ['1', 'true', 'yes', 'on'].includes(String(process.env.ALLOW_INSECURE_CRON ?? '').toLowerCase());
     const provided = req.headers['authorization']?.replace(/^Bearer\s+/i, '') ?? req.headers['x-cron-secret'];
+    if (!secret && !allowInsecureCron) {
+      res.status(503).json({ error: 'CRON_SECRET_REQUIRED', message: 'CRON_SECRET must be configured' });
+      return;
+    }
     if (secret && provided !== secret) {
       res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid cron secret' });
       return;

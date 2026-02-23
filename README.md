@@ -1,6 +1,6 @@
 ---
 doc_type: readme
-version: "1.2"
+version: "1.3"
 status: stable
 last_updated: "2026-02-23"
 author: "Manus AI"
@@ -18,7 +18,7 @@ related_docs:
   - Aegis-Implementation-Todos.md
   - Aegis-Glossary.md
 quick_ref: |
-  Aegis MVP 原型：AI Agent 消费授权协议。提供 Agent-facing API、Web/移动端审批、动作状态机、模拟支付通道（card/crypto）、Webhook 队列。一键安装：npm install && npm run dev。
+  Aegis MVP 原型：AI Agent 消费授权协议。提供 Agent-facing API、Web/移动端审批、动作状态机、模拟/Stripe 支付、Webhook、MCP。一键安装：npm install && npm run dev。
 
 # AI Agent 一键安装（可解析）
 install_backend: "npm install && npm run dev"
@@ -32,63 +32,96 @@ env:
 
 # Aegis MVP Prototype
 
+[![CI](https://github.com/josecookai/Aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/josecookai/Aegis/actions/workflows/ci.yml)
+[![CD](https://github.com/josecookai/Aegis/actions/workflows/cd.yml/badge.svg)](https://github.com/josecookai/Aegis/actions/workflows/cd.yml)
+
 **GitHub:** [https://github.com/josecookai/Aegis](https://github.com/josecookai/Aegis)
+
+**Aegis** 是 AI Agent 消费授权协议，让 AI 代理安全地代表用户发起支付请求，而无需暴露信用卡或私钥。
 
 ---
 
 ## 0. 一键安装（AI Agent 友好）
 
-> 供自动化 Agent 解析与执行。复制以下命令即可完成安装与启动。
-
-**前置条件：** Node.js 18+、npm；移动端需 Xcode（iOS）或 Android Studio。
-
 ```bash
-# 后端：安装并启动（或执行 ./scripts/install-backend.sh）
+# 后端
 npm install && npm run dev
-```
 
-**可选 — 移动端 App：** 需 Xcode（iOS）或 Android Studio。新开终端执行：
-
-```bash
+# 移动端（可选）
 cd app && npm install && npx expo start --ios
 ```
 
-**验证：** 访问 `http://localhost:3000/healthz` 应返回 `ok`。E2E 验收：`npm run e2e:verify`。
-
-| 变量 | 值 | 用途 |
-|------|-----|------|
-| `API_KEY` | `aegis_demo_agent_key` | Agent API 鉴权 |
-| `USER_ID` | `usr_demo` | 测试用户 ID |
-| `BASE_URL` | `http://localhost:3000` | 开发环境 API 根地址 |
+**验证：** `http://localhost:3000/healthz` 返回 `ok`。测试数据：`API_KEY=aegis_demo_agent_key`，`USER_ID=usr_demo`。
 
 ---
 
-## 1. 项目概览
+## 1. 开发进度
 
-**Aegis** 是一个 AI Agent 消费授权协议，让 AI 代理可以安全地代表用户发起支付请求，而无需暴露用户的信用卡或私钥。
+| Phase | 进度 | 说明 |
+|-------|------|------|
+| Phase 0 规格 | 100% | 移动端 UX、API、App Flow 规格完成 |
+| Phase 1 后端 | 100% | request_action、邮件触达、Web 审批、mock/Stripe 执行、Webhook、审计、设备注册、幂等头 |
+| Phase 2 移动端 | 50% | 审批闭环可演示（首页/历史/审批详情/Face ID）；推送待做 |
+| Phase 3 集成 | 33% | SDK、OpenAPI、MCP Server；真实支付网关/链上待做 |
+
+**已完成：** Agent API、App API（pending/history/approval）、Web 审批、Passkey、MCP HTTP Server、Stripe 集成（可选）、部署配置（Vercel/Railway/Docker）。
+
+---
+
+## 2. 测试覆盖
+
+```bash
+npm test
+```
+
+| 测试文件 | 用例数 | 覆盖 |
+|----------|--------|------|
+| `tests/app.test.ts` | 21 | 审批流程、幂等、设备 CRUD、Webhook 签名、sandbox 故障注入 |
+| `tests/mcp.test.ts` | 5 | MCP 工具调用、Aegis 客户端 |
+| `tests/mobile-api.test.ts` | 3 | App 侧 API 错误处理、生物识别决策 |
+
+**当前：** 29 个测试全绿。E2E 验收见 [docs/E2E-Verification-Checklist.md](docs/E2E-Verification-Checklist.md)。
+
+---
+
+## 3. 可以做什么
+
+| 能力 | 说明 |
+|------|------|
+| **Agent 发起支付** | `POST /v1/request_action`，支持 card/crypto 通道、幂等 |
+| **Web 审批** | Magic link 打开审批页，Passkey/OTP 模拟或真实 WebAuthn |
+| **App 审批** | 首页待审批列表 → 点击 → Face ID 批准 → 历史记录 |
+| **MCP 工具** | `aegis_request_payment`、`aegis_get_payment_status`、`aegis_cancel_payment`、`aegis_list_capabilities` |
+| **Stripe 真实扣款** | 配置 `STRIPE_SECRET_KEY` 后，card 通道走 Stripe PaymentIntent |
+| **Webhook 回调** | HMAC 签名、重试队列、replay UI |
+| **Dev 工具** | Sandbox 故障注入、Webhook 重放、Passkey 注册、邮件 outbox |
+
+---
+
+## 4. 部署
+
+| 方式 | 说明 |
+|------|------|
+| **Vercel** | 后端 serverless；SQLite 用 `/tmp`（冷启动重置）；Cron 触发 worker |
+| **Railway** | 后端 + MCP 长驻；SQLite 持久化 |
+| **Docker** | `docker build -t aegis . && docker run -p 3000:3000 -e BASE_URL=... aegis` |
+
+**步骤：** 见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。验证：`./scripts/verify-deployment.sh <后端URL> <MCP_URL>`。
+
+---
+
+## 5. 项目概览
 
 | 组件 | 技术栈 | 说明 |
 |------|--------|------|
 | 后端 | Node.js + Express + SQLite | Agent API、App API、Web 审批、Webhook |
 | 移动端 | Expo (React Native) | 待审批列表、审批详情、历史记录、Face ID |
+| MCP Server | Node.js + MCP SDK | HTTP 模式，供 OpenClaw/Manus 调用 |
 | SDK | TypeScript | 示例 Agent 脚本 |
 
 ---
 
-## 2. 当前进展（2026-02-23）
-
-| Phase | 进度 | 状态 |
-|-------|------|------|
-| Phase 0 规格 | 100% | ✅ 移动端 UX、API、App Flow 规格完成 |
-| Phase 1 后端 | 100% | ✅ request_action、邮件触达、Web 审批、mock 执行、Webhook、审计 |
-| Phase 2 移动端 | 50% | ✅ 审批闭环可演示；⏸️ 推送（FCM/APNs）待后续 |
-| Phase 3 集成 | 33% | ✅ SDK/文档；⬜ 真实支付网关/链上待做 |
-
-**审批闭环流程：** Agent 创建请求 → 首页 pending 卡片 → 点击审批 → Face ID 批准 → 历史 Tab 见记录。详见 [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md)。
-
----
-
-## 3. 移动端 UI Demo
+## 6. 移动端 UI Demo
 
 移动端 App 提供 4 个主导航：**首页（待审批）**、**历史**、**资产**、**设置**。审批流程如下：
 
@@ -105,7 +138,7 @@ cd app && npm install && npx expo start --ios
 
 ---
 
-## 4. 文档索引
+## 7. 文档索引
 
 | 文档 | 类型 | 用途 | 链接 |
 |------|------|------|------|
@@ -122,7 +155,7 @@ cd app && npm install && npx expo start --ios
 
 ---
 
-## 5. 文档关系图
+## 8. 文档关系图
 
 ```mermaid
 graph TD
@@ -157,9 +190,9 @@ graph TD
 
 ---
 
-## 6. 核心概念
+## 9. 核心概念
 
-### 6.1. 关键术语
+### 9.1. 关键术语
 
 - **Agent（代理）**：AI 代理，通过 API 发起支付请求
 - **Request（请求）**：一条待审批的支付请求，有唯一 `request_id`
@@ -169,7 +202,7 @@ graph TD
 
 **完整术语定义见：** [Aegis-Glossary.md](Aegis-Glossary.md)
 
-### 6.2. 核心功能（Feature ID）
+### 9.2. 核心功能（Feature ID）
 
 | ID | 功能 | 说明 |
 |----|------|------|
@@ -184,9 +217,9 @@ graph TD
 
 ---
 
-## 7. 快速开始
+## 10. 快速开始
 
-### 7.1. 安装与启动
+### 10.1. 安装与启动
 
 ```bash
 npm install
@@ -198,12 +231,12 @@ npm run dev
 - `http://localhost:3000/admin` - 管理面板
 - `http://localhost:3000/dev/emails` - 开发环境邮件 outbox
 
-### 7.2. 测试数据
+### 10.2. 测试数据
 
 - **API Key**: `aegis_demo_agent_key`
 - **User ID**: `usr_demo`
 
-### 7.3. 创建支付请求（Card 通道）
+### 10.3. 创建支付请求（Card 通道）
 
 ```bash
 curl -s http://localhost:3000/v1/request_action \
@@ -231,13 +264,13 @@ curl -s http://localhost:3000/v1/request_action \
 2. 打开 `approval_url` 进行审批
 3. 查看回调结果：`http://localhost:3000/_test/callbacks`
 
-### 7.4. 运行示例 Agent
+### 10.4. 运行示例 Agent
 
 ```bash
 npx tsx examples/agent-demo.ts
 ```
 
-### 7.5. 启动移动端 App（可选）
+### 10.5. 启动移动端 App（可选）
 
 ```bash
 cd app
@@ -247,7 +280,7 @@ npx expo start --ios
 
 App 支持：首页待审批列表、审批详情（token 或 action_id 入口）、Face ID/Touch ID、历史记录分页。完整 E2E 演示见 [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md)。
 
-### 7.6. 运行测试
+### 10.6. 运行测试
 
 ```bash
 npm test
@@ -255,7 +288,7 @@ npm test
 
 ---
 
-## 8. API 快速参考
+## 11. API 快速参考
 
 **Agent 侧：**
 
@@ -279,7 +312,7 @@ npm test
 
 ---
 
-## 9. 项目结构
+## 12. 项目结构
 
 ```
 .
@@ -305,7 +338,7 @@ npm test
 
 ---
 
-## 10. MVP 说明 / 原型限制
+## 13. MVP 说明 / 原型限制
 
 本 MVP 原型用于架构和流程验证，**非生产就绪**：
 
@@ -318,7 +351,7 @@ npm test
 
 ---
 
-## 11. 相关资源
+## 14. 相关资源
 
 - **术语表**：[Aegis-Glossary.md](Aegis-Glossary.md) - 统一术语定义
 - **实施指南**：[Aegis-Implementation-Todos.md](Aegis-Implementation-Todos.md) - Phase 0～3 任务清单
@@ -327,11 +360,11 @@ npm test
 
 ---
 
-## 12. Roadmap / 后续规划
+## 15. Roadmap / 后续规划
 
 | 阶段 | 优先级 | 内容 | 依赖 |
 |------|--------|------|------|
-| **P2-2d 推送** | 高 | FCM/APNs 集成，设备注册 API（`POST/GET/DELETE /api/app/devices`） | 设备 token 存储 |
+| **P2-2d 推送** | 高 | FCM/APNs 集成（设备注册 API 已完成：`POST/GET/DELETE /api/app/devices`） | 设备 token 存储 |
 | **P2-1 安全芯片** | 高 | Secure Enclave/StrongBox 凭证存储与签名（F-01） | 移动端架构 |
 | **P2-3 资产管理** | 中 | 钱包/信用卡添加与管理，PCI 金库对接（F-02） | 支付网关选型 |
 | **P3-1 真实支付** | 高 | 集成 Stripe/Adyen 与链上执行（F-05） | P2-1、P2-3 |
@@ -343,7 +376,7 @@ npm test
 
 ---
 
-## 13. 原始内容（保留）
+## 16. 原始内容（保留）
 
 This repo now includes a runnable MVP prototype for the Aegis plan:
 - Agent-facing API (`/v1/request_action`, `/v1/actions/:id`, `/cancel`, capabilities, webhook test)
