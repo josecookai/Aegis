@@ -107,6 +107,119 @@ curl -X POST http://localhost:3000/v1/request_action \
 
 ---
 
+## 2B. 团队试点 E2E Checklist（团队版增量）
+
+> 目标：最小回归覆盖 **2 成员 + 1 管理员**，审批策略为「成员自批」，管理员仅查看历史。
+
+### 测试角色（最小集合）
+
+| 角色 | 示例 ID | 用途 |
+|------|---------|------|
+| 成员 A | `usr_team_01` | 发起并自批成功路径 |
+| 成员 B | `usr_team_02` | 权限失败路径（不可审批成员 A） |
+| 管理员 | `usr_team_admin` | 查看团队历史（只读） |
+
+### 团队试点执行前检查（建议先做）
+
+```bash
+# Backend / MCP 健康检查
+curl http://localhost:3000/healthz
+curl http://localhost:8080/health
+
+# 管理员历史接口权限检查（管理员）
+curl "http://localhost:3000/api/app/admin/history?user_id=usr_team_admin&limit=5"
+
+# 管理员历史接口权限检查（普通成员，应失败）
+curl "http://localhost:3000/api/app/admin/history?user_id=usr_team_01&limit=5"
+```
+
+检查点：
+
+- 成员使用的 `AEGIS_USER_ID` 来自当前 seed：`usr_team_01..usr_team_10`
+- 管理员使用 `usr_team_admin`
+- 成员 A 已有默认卡；成员 B 无默认卡（用于失败路径）
+
+### Team-E2E-1：成功路径（成员 A 自批成功）
+
+| 检查项 | 预期 | 结果 | 备注 |
+|--------|------|------|------|
+| 成员 A 使用 OpenClaw 发起支付 | 返回 `action_id` | 📋 | 记录 action_id_A |
+| action 响应字段存在性 | `team_id`、`requested_by_user_id`、`approval_target_user_id`、`approval_policy` 存在 | 📋 | 记录响应 JSON |
+| self-approval 字段值校验 | `requested_by_user_id == approval_target_user_id == usr_team_01` | 📋 | `approval_policy` 为成员自批策略值（以实际返回为准） |
+| 成员 A 本人审批 | 审批成功 | 📋 | App/Web 任一方式 |
+| OpenClaw 轮询状态 | `approved` -> `executing` -> `succeeded` | 📋 | `aegis_get_payment_status` |
+
+**通过标准：** 成员 A 可独立完成「发起 -> 本人审批 -> 成功」闭环，无需管理员审批。
+
+可执行操作（示例）：
+
+1. 在成员 A 的 OpenClaw 环境设置 `AEGIS_USER_ID=usr_team_01`
+2. 发起 `aegis_request_payment`（或用 REST `POST /v1/request_action`）并记录 `action_id_A`
+3. 检查响应 JSON 中 `requested_by_user_id` 与 `approval_target_user_id` 是否都为 `usr_team_01`
+4. 用成员 A 本人完成审批
+5. 轮询 `aegis_get_payment_status(action_id_A)` 直到终态
+
+### Team-E2E-2：权限失败（成员 B 不可审批成员 A）
+
+| 检查项 | 预期 | 结果 | 备注 |
+|--------|------|------|------|
+| 成员 A 发起 action | 创建成功 | 📋 | 使用 action_id_A |
+| 成员 B 尝试审批 action_id_A | 返回拒绝（如 403 / 审批失败） | 📋 | 具体错误文案以实际接口返回为准 |
+| 成员 B 越权审批后状态不变 | `action_id_A` 仍为待审批（或原状态） | 📋 | 防止越权审批 |
+
+**通过标准：** 非 `approval_target_user_id` 的成员无法审批他人请求。
+
+可执行操作（示例）：
+
+1. 保持成员 A 创建的 `action_id_A` 处于待审批
+2. 切换到成员 B 身份（`AEGIS_USER_ID=usr_team_02`）尝试审批同一 action
+3. 记录失败响应（403/审批失败）
+4. 再次查询 `action_id_A` 状态，确认未变为 `approved` / `succeeded`
+
+### Team-E2E-3：失败路径（成员无默认卡）
+
+| 检查项 | 预期 | 结果 | 备注 |
+|--------|------|------|------|
+| 选取无默认卡成员（如成员 B） | 发起支付请求 | 📋 | 确保该成员未设置默认卡 |
+| 调用返回错误 | `NO_DEFAULT_PAYMENT_METHOD` | 📋 | 若错误包装不同，至少要能识别“无默认卡” |
+| 修复后重试（可选） | 配置默认卡后可正常发起 | 📋 | 验证恢复路径 |
+
+**通过标准：** 无默认卡时明确失败，不进入错误审批流程。
+
+可执行操作（示例）：
+
+1. 使用成员 B（`usr_team_02`）发起支付
+2. 确认返回 `NO_DEFAULT_PAYMENT_METHOD`
+3. 打开 `/settings/payment-methods?user_id=usr_team_02` 添加并设默认卡（可选）
+4. 重试发起支付，确认恢复
+
+### Team-E2E-4：管理员只读历史可见
+
+| 检查项 | 预期 | 结果 | 备注 |
+|--------|------|------|------|
+| 管理员访问团队历史页面 | 可加载团队 action 列表 | 📋 | `/admin/team-history?user_id=usr_team_admin` |
+| 列表字段 | 显示 `action_id` / `requested_by_user_id` / amount/currency / `recipient_name` / `status` / `created_at` | 📋 | 只读展示 |
+| 页面行为（只读） | 无审批按钮 | 📋 | 管理员仅查看历史 |
+| 普通成员访问同 API | 被拒绝（API 返回错误） | 📋 | `/api/app/admin/history?user_id=usr_team_01` |
+
+**通过标准：** 管理员可见团队历史；普通成员不能调用管理员历史接口。
+
+可执行操作（示例）：
+
+1. 浏览器打开 `/admin/team-history?user_id=usr_team_admin`
+2. 确认页面表格展示团队 action 历史，且没有 approve/deny 按钮
+3. 浏览器或 curl 访问 `/api/app/admin/history?user_id=usr_team_01`
+4. 确认返回 403（权限拒绝）
+
+### Team-E2E 通过标准（mock 模式 vs 真实 Stripe 模式）
+
+| 模式 | 通过标准 |
+|------|----------|
+| mock 模式（未配置 `STRIPE_SECRET_KEY` 或走 mock 执行） | 成员 A 可完成自批并到达终态；无默认卡/越权审批/管理员只读权限校验全部通过；`succeeded` 可为 mock 执行结果 |
+| 真实 Stripe 模式（配置 Stripe 且成员有测试/真实卡） | 除上述权限与流程校验外，还需在 Stripe 侧看到对应支付记录（测试模式可在 Dashboard 看到 test charge / payment intent） |
+
+---
+
 ## 3. 汇总
 
 | E2E 步骤 | 状态 | 阻塞原因 |

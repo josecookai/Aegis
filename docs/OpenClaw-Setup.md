@@ -152,6 +152,111 @@ openclaw gateway --verbose
 6. 状态变为 succeeded 后，告知用户「支付成功」
 ```
 
+### 5.1 团队试点（成员自批）说明
+
+团队试点当前审批策略为：**成员自批**。
+
+- 请求由成员发起后，审批目标是该成员本人（不是管理员）
+- 管理员职责仅为查看团队历史（只读），不参与审批按钮操作
+- Self approval 行为：`requested_by_user_id` 与 `approval_target_user_id` 应指向同一成员
+- action 响应中可用于核对：`team_id`、`requested_by_user_id`、`approval_target_user_id`、`approval_policy`
+
+### 5.1A 配置前检查（团队试点）
+
+在给 10 位成员分发配置前，建议先逐项确认：
+
+1. `AEGIS_USER_ID` 是否为当前代码 seed 中的真实用户（当前 seed：`usr_team_01` ~ `usr_team_10`，管理员为 `usr_team_admin`）
+2. 该 `AEGIS_USER_ID` 是否已加入团队（避免 `USER_NOT_IN_TEAM`）
+3. 该成员是否已有默认卡（避免 `NO_DEFAULT_PAYMENT_METHOD`）
+4. Aegis 后端健康检查：`GET <AEGIS_API_URL>/healthz`
+5. MCP 服务健康检查：`GET <MCP_URL>/health`
+
+示例：
+
+```bash
+curl https://aegis.example.com/healthz
+curl https://mcp.example.com/health
+```
+
+### 5.2 成员视角端到端流程（OpenClaw -> 本人审批 -> 轮询成功）
+
+```
+1. 成员在自己的 OpenClaw 中触发 aegis_request_payment
+2. Aegis 创建 action，并绑定 team_id / requested_by_user_id / approval_target_user_id
+3. Aegis 向成员本人发送审批（App 或 Web）
+4. 成员本人审批通过（成员自批）
+5. OpenClaw 轮询 aegis_get_payment_status(action_id)
+6. 状态变为 succeeded，OpenClaw 返回“支付成功”
+```
+
+---
+
+## 5B. 团队 10 人接入模板（OpenClaw）
+
+适用于 10 人试点并行接入。核心配置原则：
+
+- 每位成员使用独立 `AEGIS_USER_ID`
+- 全员共享同一个 `AEGIS_API_URL`
+- MCP URL 按部署形态配置（共享服务可相同；本地桥接可不同端口）
+
+### 5B.1 成员环境变量模板（每人一份）
+
+```bash
+# 团队统一（示例）
+export AEGIS_API_URL="https://aegis.example.com"
+export AEGIS_API_KEY="aegis_demo_agent_key"
+
+# 成员独立（必须不同）
+export AEGIS_USER_ID="usr_team_01"
+
+# 若成员本地起 MCP HTTP 服务（示例）
+export MCP_HTTP_PORT="8080"
+```
+
+### 5B.2 10 人配置清单模板
+
+| 成员 | `AEGIS_USER_ID` | `AEGIS_API_URL` | MCP URL（示例） |
+|------|------------------|------------------|-----------------|
+| 成员 01 | `usr_team_01` | `https://aegis.example.com` | `http://localhost:8080` |
+| 成员 02 | `usr_team_02` | `https://aegis.example.com` | `http://localhost:8081` |
+| 成员 03 | `usr_team_03` | `https://aegis.example.com` | `http://localhost:8082` |
+| 成员 04 | `usr_team_04` | `https://aegis.example.com` | `http://localhost:8083` |
+| 成员 05 | `usr_team_05` | `https://aegis.example.com` | `http://localhost:8084` |
+| 成员 06 | `usr_team_06` | `https://aegis.example.com` | `http://localhost:8085` |
+| 成员 07 | `usr_team_07` | `https://aegis.example.com` | `http://localhost:8086` |
+| 成员 08 | `usr_team_08` | `https://aegis.example.com` | `http://localhost:8087` |
+| 成员 09 | `usr_team_09` | `https://aegis.example.com` | `http://localhost:8088` |
+| 成员 10 | `usr_team_10` | `https://aegis.example.com` | `http://localhost:8089` |
+
+备注：
+
+- 如果团队使用共享 MCP 服务，10 人的 MCP URL 可以统一为同一个公网地址（如 `https://mcp.example.com`）
+- OpenClaw Bridge 配置中的 `servers[].url` 仍填写 MCP Base URL（不带 `/mcp`）
+
+### 5B.3 OpenClaw MCP URL 配置示例（团队版）
+
+```json5
+{
+  "plugins": {
+    "enabled": true,
+    "entries": {
+      "openclaw-mcp-bridge": {
+        "config": {
+          "servers": [
+            {
+              "name": "aegis-team",
+              "url": "https://mcp.example.com",
+              "prefix": "",
+              "healthCheck": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
 ---
 
 ## 6. 故障排查
@@ -162,6 +267,41 @@ openclaw gateway --verbose
 | 工具不可见 | MCP URL 错误或网络不通 | 用 `curl http://localhost:8080/health` 验证 |
 | 调用返回 401 | Aegis 后端 API Key 不匹配 | 检查 `AEGIS_API_KEY` 与后端 `.env` 一致 |
 | 调用返回连接错误 | Aegis 后端未启动 | 确保 `npm run dev` 在运行 |
+
+### 6.1 团队试点常见错误（成员自批）
+
+| 错误码 / 现象 | 含义 | 处理建议 |
+|--------------|------|----------|
+| `NO_DEFAULT_PAYMENT_METHOD` | 成员没有默认支付方式（如默认卡） | 先为该成员添加卡并设为默认，再重试 |
+| `USER_NOT_IN_TEAM` | `AEGIS_USER_ID` 不属于目标团队 | 检查成员 ID 配置、团队成员关系、环境变量是否串号 |
+| 审批人不匹配（403 / 审批失败） | 当前审批用户不是 `approval_target_user_id` | 团队策略为成员自批，需由请求发起成员本人审批 |
+
+团队模式排查顺序（推荐）：
+
+1. 检查 OpenClaw 进程的 `AEGIS_USER_ID` 是否为当前成员本人
+2. 检查该成员是否已配置默认卡（避免 `NO_DEFAULT_PAYMENT_METHOD`）
+3. 查看 action 响应中的 `requested_by_user_id`、`approval_target_user_id`、`approval_policy`
+4. 管理员仅在团队历史页查看记录，不参与审批
+
+### 6.2 错误码 -> 处理动作（团队试点执行版）
+
+| 错误码 / 现象 | 推荐处理动作（按顺序执行） |
+|--------------|-----------------------------|
+| `NO_DEFAULT_PAYMENT_METHOD` | 1) 打开成员卡管理页（如 `/settings/payment-methods?user_id=<成员ID>`） 2) 添加卡并设默认 3) 重试 OpenClaw 请求 |
+| `USER_NOT_IN_TEAM` | 1) 核对 `AEGIS_USER_ID` 是否为 seed 真实值（`usr_team_01..10`） 2) 检查环境变量是否串号 3) 由后端确认团队成员关系 seed/数据 |
+| 审批人不匹配（403 / 审批失败） | 1) 确认当前审批账号就是请求发起成员本人 2) 核对 action 字段 `requested_by_user_id == approval_target_user_id` 3) 不要使用管理员账号审批 |
+| 管理员历史接口 403（管理员也失败） | 1) 确认使用 `usr_team_admin` 2) 确认该账号状态 active 且团队角色为 admin 3) 再访问 `/api/app/admin/history?user_id=usr_team_admin` |
+
+### 6.3 管理员历史页（只读）使用说明
+
+- 页面路径：`/admin/team-history`
+- 查询参数：`user_id`（必填，填写管理员 user_id，例如 `usr_team_admin`），可选 `limit`
+- 页面调用接口：`GET /api/app/admin/history?user_id=<管理员ID>&limit=<n>`
+- 权限前提（以 API 为准）：
+  - 必须是团队内 `admin` 角色成员
+  - 用户与团队成员关系需为 `active`
+  - 普通成员访问会返回 `403`（`ADMIN_AUTH_REQUIRED`）
+- 页面行为：只读列表展示，不提供审批按钮
 
 ---
 
