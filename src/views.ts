@@ -77,6 +77,13 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px 8
 .nav-links { display: flex; gap: 8px; align-items: center; }
 .nav-links a { padding: 8px 14px; border-radius: var(--radius); font-size: 14px; font-weight: 500; color: var(--muted); }
 .nav-links a:hover { color: var(--accent); background: var(--accent-muted); }
+@media (max-width: 768px) {
+  main { padding: 0 16px 60px; }
+  .nav { margin: 0 -16px 24px; padding: 12px 16px; }
+  .grid.cols-2 { grid-template-columns: 1fr; }
+  .card { padding: 20px; }
+  section .grid.cols-2 { gap: 24px; }
+}
 </style>
 </head>
 <body>
@@ -345,26 +352,26 @@ OpenClaw: \"Payment succeeded. Subscription renewed.\"</code></pre>
           <p><strong>Seed demo credentials</strong></p>
           <p><code>x-aegis-api-key: aegis_demo_agent_key</code></p>
           <p><code>end_user_id: usr_demo</code></p>
-          <p class="small">Card refs: <code>merchant_api:*</code> / <code>payment_link:*</code><br/>Crypto refs: <code>address:0x...</code> / <code>wallet:*</code></p>
-          <div class="actions">
-            <a href="/dev/sandbox">Sandbox Demos</a>
-            <a href="/dev/webhooks">Webhook Replay UI</a>
-            <a href="/dev/passkeys">Passkey Enrollment</a>
-            <a href="/dev/emails">Email Outbox</a>
-            <a href="/healthz">Health</a>
+          <p class="small">Card refs: <code>merchant_api:*</code> / <code>payment_link:*</code> · Crypto: <code>address:0x...</code> / <code>wallet:*</code></p>
+          <div class="actions" style="margin-top:16px;">
+            <a href="/dev/sandbox" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Sandbox Demos</a>
+            <a href="/dev/webhooks" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Webhook Replay</a>
+            <a href="/dev/passkeys" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Passkey Enrollment</a>
+            <a href="/dev/emails" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Email Outbox</a>
+            <a href="/healthz" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Health</a>
           </div>
         </div>
       </section>
 
-      <section class="card" style="background:linear-gradient(180deg,#0052ff,#0b4fd1); color:#fff; border-color:#0b4fd1;">
-        <div class="grid cols-2" style="align-items:center;">
+      <section class="card" style="background:linear-gradient(135deg,#0052ff 0%,#0b4fd1 100%); color:#fff; border:none; padding:40px 32px;">
+        <div class="grid cols-2" style="align-items:center; gap:32px;">
           <div>
-            <h2 style="color:#fff; margin-bottom:8px;">Build the trust layer for agent commerce</h2>
-            <p style="color:rgba(255,255,255,.86);">Aegis is building the approval protocol between autonomous agents and human money. Start with the MVP console and sandbox tools, then integrate the API.</p>
+            <h2 style="color:#fff; margin-bottom:12px; font-size:1.5rem;">Build the trust layer for agent commerce</h2>
+            <p style="color:rgba(255,255,255,.9); margin:0; font-size:16px;">Aegis is the approval protocol between autonomous agents and human money. Start with the MVP console, then integrate the API.</p>
           </div>
           <div class="actions" style="justify-content:flex-end;">
-            <a href="/admin" style="background:#fff;color:#0b4fd1;padding:10px 14px;border-radius:10px;text-decoration:none;">Open Demo Console</a>
-            <a href="/docs/openapi.yaml" style="background:rgba(255,255,255,.14);color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;border:1px solid rgba(255,255,255,.25);">View API Spec</a>
+            <a href="/admin" class="btn" style="background:#fff;color:#0b4fd1;">Open Demo Console</a>
+            <a href="/docs/openapi.yaml" class="btn" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);">View API Spec</a>
           </div>
         </div>
       </section>
