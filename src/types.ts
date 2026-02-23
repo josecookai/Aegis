@@ -23,7 +23,7 @@ export const TERMINAL_STATUSES = new Set<ActionStatus>([
 ]);
 
 export type PaymentRail = 'card' | 'crypto';
-export type DecisionSource = 'web_passkey' | 'web_otp' | 'web_magic_link';
+export type DecisionSource = 'web_passkey' | 'web_otp' | 'web_magic_link' | 'app_biometric';
 
 export type WebhookEventType =
   | 'action.approved'

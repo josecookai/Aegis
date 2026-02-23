@@ -22,8 +22,19 @@ describe('Aegis MVP prototype', () => {
     runtime.stop();
   });
 
+  it('protects admin/dev routes and supports admin login', async () => {
+    const api = request(runtime.app);
+    await api.get('/admin').expect(302);
+    await api.get('/api/dev/actions').expect(401);
+
+    const adminCookie = await adminLogin(api);
+    await api.get('/admin').set('Cookie', [adminCookie]).expect(200);
+    await api.get('/dev/passkeys').set('Cookie', [adminCookie]).expect(200);
+  });
+
   it('creates, approves, executes, and callbacks for card rail', async () => {
     const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
     const create = await api
       .post('/v1/request_action')
       .set('x-aegis-api-key', 'aegis_demo_agent_key')
@@ -61,7 +72,7 @@ describe('Aegis MVP prototype', () => {
       .send({ csrf: csrfToken, decision: 'approve', decision_source: 'web_passkey' })
       .expect(200);
 
-    await api.post('/api/dev/workers/tick').send({}).expect(200);
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
 
     const actionId = String(create.body.action.action_id);
     const final = await api
@@ -103,6 +114,7 @@ describe('Aegis MVP prototype', () => {
 
   it('supports denial flow and emits denied callback', async () => {
     const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
     const create = await api
       .post('/v1/request_action')
       .set('x-aegis-api-key', 'aegis_demo_agent_key')
@@ -135,7 +147,7 @@ describe('Aegis MVP prototype', () => {
       .send({ csrf: csrfToken, decision: 'deny', decision_source: 'web_otp' })
       .expect(200);
 
-    await api.post('/api/dev/workers/tick').send({}).expect(200);
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
 
     const actionId = String(create.body.action.action_id);
     const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
@@ -147,6 +159,7 @@ describe('Aegis MVP prototype', () => {
 
   it('supports cancel before approval and emits canceled callback', async () => {
     const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
     const create = await api
       .post('/v1/request_action')
       .set('x-aegis-api-key', 'aegis_demo_agent_key')
@@ -169,7 +182,7 @@ describe('Aegis MVP prototype', () => {
 
     const actionId = String(create.body.action.action_id);
     await api.post(`/v1/actions/${actionId}/cancel`).set('x-aegis-api-key', 'aegis_demo_agent_key').send({}).expect(200);
-    await api.post('/api/dev/workers/tick').send({}).expect(200);
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
 
     const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
     expect(final.body.action.status).toBe('canceled');
@@ -180,6 +193,7 @@ describe('Aegis MVP prototype', () => {
 
   it('handles execution failure and can requeue a failed webhook delivery', async () => {
     const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
 
     const failing = await api
       .post('/v1/request_action')
@@ -202,31 +216,32 @@ describe('Aegis MVP prototype', () => {
       .expect(201);
 
     const actionId = String(failing.body.action.action_id);
-    await api.post(`/api/dev/actions/${actionId}/decision`).send({ decision: 'approve' }).expect(200);
-    await api.post('/api/dev/workers/tick').send({}).expect(200);
+    await api.post(`/api/dev/actions/${actionId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'approve' }).expect(200);
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
 
     const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
     expect(final.body.action.status).toBe('failed');
     expect(final.body.action.execution?.error_code).toBe('PSP_DECLINED');
 
-    const deliveriesRes = await api.get(`/api/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).expect(200);
+    const deliveriesRes = await api.get(`/api/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).set('Cookie', [adminCookie]).expect(200);
     const deliveries = deliveriesRes.body.deliveries as Array<any>;
     expect(deliveries.length).toBeGreaterThan(0);
     expect(deliveries.some((d) => d.status === 'pending' || d.status === 'dead')).toBe(true);
 
     const target = deliveries[0];
-    await api.post(`/api/dev/webhooks/${target.id}/requeue`).send({}).expect(200);
-    const afterRequeue = await api.get(`/api/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).expect(200);
+    await api.post(`/api/dev/webhooks/${target.id}/requeue`).set('Cookie', [adminCookie]).send({}).expect(200);
+    const afterRequeue = await api.get(`/api/dev/webhooks?action_id=${encodeURIComponent(actionId)}`).set('Cookie', [adminCookie]).expect(200);
     const updated = (afterRequeue.body.deliveries as Array<any>).find((d) => d.id === target.id);
     expect(updated?.status).toBe('pending');
   });
 
   it('exposes passkey registration options for dev enrollment', async () => {
     const api = request(runtime.app);
-    const page = await api.get('/dev/passkeys').expect(200);
+    const adminCookie = await adminLogin(api);
+    const page = await api.get('/dev/passkeys').set('Cookie', [adminCookie]).expect(200);
     expect(page.text).toContain('Dev Passkey Enrollment');
 
-    const optionsRes = await api.post('/dev/passkeys/register/options').send({ user_id: 'usr_demo' }).expect(200);
+    const optionsRes = await api.post('/dev/passkeys/register/options').set('Cookie', [adminCookie]).send({ user_id: 'usr_demo' }).expect(200);
     expect(optionsRes.body.options?.challenge).toBeTruthy();
     expect(optionsRes.body.options?.rp?.name).toBeTruthy();
     expect(optionsRes.body.options?.user?.name).toBe('demo.user@example.com');
@@ -241,6 +256,13 @@ function extractCookieValue(setCookie: string | string[] | undefined, name: stri
     if (match) return match[1];
   }
   return '';
+}
+
+async function adminLogin(api: any): Promise<string> {
+  const res = await api.post('/login').type('form').send({ password: 'aegis_admin_dev', next: '/admin' }).expect(302);
+  const cookie = extractCookieValue(res.headers['set-cookie'], 'aegis_admin_session');
+  if (!cookie) throw new Error('missing admin session cookie');
+  return `aegis_admin_session=${cookie}`;
 }
 
 function extractHidden(html: string, name: string): string {

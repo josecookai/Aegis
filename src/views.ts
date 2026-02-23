@@ -81,6 +81,30 @@ export function renderHomePage(): string {
   );
 }
 
+export function renderAdminLoginPage(params?: { error?: string; next?: string }): string {
+  return layout(
+    'Admin Login',
+    `<div class="grid" style="max-width:520px;margin:0 auto">
+      <div class="card">
+        <h1>Aegis Admin Login</h1>
+        <p>Access required for admin and dev tooling routes.</p>
+        ${params?.error ? `<p style="color:#b42318"><strong>${escapeHtml(params.error)}</strong></p>` : ''}
+        <form method="post" action="/login" class="grid">
+          <input type="hidden" name="next" value="${escapeHtml(params?.next ?? '/admin')}" />
+          <label>Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <div class="actions">
+            <button class="primary" type="submit">Login</button>
+            <a href="/">Back</a>
+          </div>
+          <p class="small">MVP auth: environment password + signed cookie session.</p>
+        </form>
+      </div>
+    </div>`
+  );
+}
+
 export function renderApprovalPage(params: {
   valid: boolean;
   reason?: string;

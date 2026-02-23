@@ -7,9 +7,11 @@ import { NotificationService } from './services/notifications';
 import { ExecutionEngine } from './services/execution';
 import { WebhookSender } from './services/webhookSender';
 import { AegisService } from './services/aegis';
+import { AdminAuthService } from './services/adminAuth';
 import { WebAuthnService } from './services/webauthn';
 import { WorkerScheduler } from './workers';
 import { createApiRouter } from './routes/api';
+import { createAppRouter } from './routes/app';
 import { createWebRouter } from './routes/web';
 
 export interface AppRuntime {
@@ -29,6 +31,7 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
   const executionEngine = new ExecutionEngine();
   const webhookSender = new WebhookSender(config);
   const service = new AegisService(store, notifications, executionEngine, webhookSender, config);
+  const adminAuth = new AdminAuthService(config);
   const webauthn = new WebAuthnService(store, config);
   const workers = new WorkerScheduler(service);
   const testCallbackInbox: Array<{ headers: Record<string, string>; body: unknown; received_at: string }> = [];
@@ -38,6 +41,22 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser());
+
+  app.use((req, res, next) => {
+    if (!adminAuth.isEnabled()) return next();
+    if (!isProtectedPath(req.path)) return next();
+
+    const token = (req.cookies?.[config.adminSessionCookieName] ?? req.cookies?.aegis_admin_session) as string | undefined;
+    if (adminAuth.verifySessionToken(token)) return next();
+
+    if (req.path.startsWith('/api/')) {
+      res.status(401).json({ error: 'ADMIN_AUTH_REQUIRED', message: 'Admin login required for dev API routes' });
+      return;
+    }
+
+    const nextParam = encodeURIComponent(req.originalUrl || req.path || '/admin');
+    res.redirect(`/login?next=${nextParam}`);
+  });
 
   app.post('/_test/callback', (req, res) => {
     const headers: Record<string, string> = {};
@@ -52,7 +71,8 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     res.json({ callbacks: testCallbackInbox });
   });
 
-  app.use(createWebRouter(service, webauthn));
+  app.use(createWebRouter(service, webauthn, adminAuth));
+  app.use(createAppRouter(service));
   app.use(createApiRouter(service));
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -75,4 +95,8 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
       db.close();
     },
   };
+}
+
+function isProtectedPath(pathname: string): boolean {
+  return pathname === '/admin' || pathname === '/dev' || pathname.startsWith('/dev/') || pathname.startsWith('/api/dev/');
 }

@@ -9,6 +9,9 @@ export interface AppConfig {
   autoStartWorkers: boolean;
   approvalExpiryMinutesDefault: number;
   sessionCookieName: string;
+  adminPassword: string;
+  adminSessionSecret: string;
+  adminSessionCookieName: string;
 }
 
 function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
@@ -27,5 +30,8 @@ export function loadConfig(): AppConfig {
     autoStartWorkers: boolFromEnv(process.env.AUTO_START_WORKERS, true),
     approvalExpiryMinutesDefault: Number(process.env.APPROVAL_EXPIRY_MINUTES ?? 15),
     sessionCookieName: process.env.SESSION_COOKIE_NAME ?? 'aegis_session',
+    adminPassword: process.env.ADMIN_PASSWORD ?? 'aegis_admin_dev',
+    adminSessionSecret: process.env.ADMIN_SESSION_SECRET ?? 'aegis_admin_session_secret_dev_only',
+    adminSessionCookieName: process.env.ADMIN_SESSION_COOKIE_NAME ?? 'aegis_admin_session',
   };
 }

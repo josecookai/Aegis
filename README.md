@@ -250,6 +250,18 @@ Open:
 - `http://localhost:3000/admin` (admin dashboard)
 - `http://localhost:3000/dev/emails` (dev email outbox)
 
+## Admin Login (New)
+
+Admin/dev routes are now protected by a password login.
+
+- Login page: `http://localhost:3000/login`
+- Default dev password: `aegis_admin_dev`
+- Protected routes: `/admin`, `/dev/*`, `/api/dev/*`
+
+Environment variables:
+- `ADMIN_PASSWORD`
+- `ADMIN_SESSION_SECRET`
+
 ## Seed Data
 
 - API key: `aegis_demo_agent_key`
@@ -301,6 +313,8 @@ npm test
 - This prototype is designed for architecture and flow validation, not production compliance.
 
 ## Dev/Sandbox Debug Endpoints (Prototype)
+
+These now require admin login (browser cookie session).
 
 - `POST /api/dev/workers/tick` : run one worker cycle (expire approvals, execute approved actions, dispatch webhooks)
 - `POST /api/dev/actions/:actionId/decision` : force `approve` / `deny` / `expire` for debugging

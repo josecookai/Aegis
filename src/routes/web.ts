@@ -2,12 +2,40 @@ import path from 'node:path';
 import { Router } from 'express';
 import { randomToken } from '../lib/crypto';
 import { DomainError, AegisService } from '../services/aegis';
+import { AdminAuthService } from '../services/adminAuth';
 import { WebAuthnService } from '../services/webauthn';
-import { renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage } from '../views';
+import { renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage } from '../views';
 import { DecisionSource } from '../types';
 
-export function createWebRouter(service: AegisService, webauthn: WebAuthnService): Router {
+export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService): Router {
   const router = Router();
+
+  router.get('/login', (req, res) => {
+    const next = typeof req.query.next === 'string' ? req.query.next : '/admin';
+    res.type('html').send(renderAdminLoginPage({ next }));
+  });
+
+  router.post('/login', (req, res) => {
+    const password = String(req.body?.password ?? '');
+    const next = sanitizeNextPath(String(req.body?.next ?? '/admin'));
+    if (!adminAuth.verifyPassword(password)) {
+      res.status(401).type('html').send(renderAdminLoginPage({ error: 'Invalid password', next }));
+      return;
+    }
+    const token = adminAuth.issueSessionToken();
+    res.cookie('aegis_admin_session', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: false,
+      maxAge: 12 * 60 * 60 * 1000,
+    });
+    res.redirect(next);
+  });
+
+  router.post('/logout', (_req, res) => {
+    res.clearCookie('aegis_admin_session');
+    res.redirect('/login');
+  });
 
   router.get('/', (_req, res) => {
     res.type('html').send(renderHomePage());
@@ -171,4 +199,10 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
   });
 
   return router;
+}
+
+function sanitizeNextPath(input: string): string {
+  if (!input.startsWith('/')) return '/admin';
+  if (input.startsWith('//')) return '/admin';
+  return input;
 }
