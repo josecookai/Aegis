@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Aegis",
+    "slug": "aegis-mobile",
+    "version": "0.1.0",
+    "scheme": "aegis",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aegis.mobile"
+    },
+    "android": {
+      "package": "com.aegis.mobile",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "aegis",
+              "host": "approve"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}

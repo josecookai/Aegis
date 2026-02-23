@@ -242,6 +242,19 @@ quick_ref: |
 - 所需请求详情与提交决策的 API 与 [Aegis-API-Spec.md](Aegis-API-Spec.md) 兼容；若存在 App 专用端点（如用户 token 鉴权的 `GET /v1/me/requests`），在 API Spec 中补充后，本 UX Spec 引用同一数据模型。
 - 验收时可将本文档中的「关键界面与状态」「推送与深链」映射到 [Aegis-Implementation-Todos.md](Aegis-Implementation-Todos.md) 中 F-04、F-06 的 Checklist 项。
 
+### 6.1. 当前实现对应（App 仓库 `app/`）
+
+| UX 章节 | 实现情况 |
+|---------|----------|
+| §2.1 主导航（4 Tab） | 已实现：底部 Tab 首页、历史、资产、设置（`app/(tabs)/_layout.tsx`） |
+| §3.1 首页/待审批列表 | ✅ 已接真实 API（`GET /api/app/pending`）；FlatList 展示 pending 卡片（金额、收款方、时间）；点击卡片进入审批详情；空状态 + 下拉刷新 |
+| §3.2 审批详情 | ✅ 已实现：`app/approve.tsx`，金额/收款方/描述、批准/拒绝、生物识别；支持 token 和 action_id 两种入口（从深链或从列表点击） |
+| §3.3 审批结果反馈 | ✅ 已实现：内联结果视图（✓ 已批准 / ✗ 已拒绝）+ 返回首页按钮 |
+| §3.4 资产 | 占位屏；P2-3 实现 |
+| §3.5 历史/审计 | ✅ 已接真实 API（`GET /api/app/history`）；列表展示状态 badge（approved/denied/failed 等）+ 金额 + 收款方 + 时间；支持分页加载更多 |
+| §3.6 设置 | 占位屏；后续补充项 |
+| §4.2 Deep Link | `aegis://approve?token=<magic_link_token>`，进入审批详情 |
+
 ---
 
 ## 7. 组件索引

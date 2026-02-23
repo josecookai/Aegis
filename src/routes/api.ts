@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { ZodError } from 'zod';
+import Stripe from 'stripe';
 import { requestActionSchema, webhookTestSchema } from '../schemas';
 import { DomainError, AegisService } from '../services/aegis';
 import { SandboxFaultService, CardFaultMode, CryptoFaultMode, FaultScope, SandboxPresetName } from '../services/sandboxFaults';
@@ -24,6 +25,10 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
       const agent = (req as any).agent;
       const input = requestActionSchema.parse(req.body);
       const result = service.createActionRequest(agent, input);
+      res.setHeader('Idempotency-Key', input.idempotency_key);
+      if (result.idempotencyReplayed) {
+        res.setHeader('Idempotency-Replayed', 'true');
+      }
       res.status(201).json({
         action: service.getStore().toActionApiResponse(result.action),
         links: {
@@ -35,15 +40,19 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
     }
   });
 
-  router.get('/v1/actions/:actionId', (req, res, next) => {
+  const getActionHandler = (req: any, res: any, next: any) => {
     try {
-      const agent = (req as any).agent;
-      const action = service.getActionForAgent(agent, req.params.actionId);
+      const agent = req.agent;
+      const actionId = req.params.actionId || req.params.id;
+      const action = service.getActionForAgent(agent, actionId);
       res.json({ action: service.getStore().toActionApiResponse(action) });
     } catch (error) {
       next(error);
     }
-  });
+  };
+
+  router.get('/v1/actions/:actionId', getActionHandler);
+  router.get('/v1/requests/:id', getActionHandler);
 
   router.post('/v1/actions/:actionId/cancel', (req, res, next) => {
     try {
@@ -189,6 +198,67 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
         throw new DomainError('INVALID_PRESET', 'Unknown sandbox preset', 400);
       }
       res.json({ sandbox_faults: sandboxFaults.applyPreset(preset), preset });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ─── Dev: Stripe test card setup ───────────────────────────────────
+  router.post('/api/dev/stripe/setup-test-card', async (req, res, next) => {
+    try {
+      const config = service.getConfig();
+      if (!config.stripeSecretKey) {
+        throw new DomainError('STRIPE_NOT_CONFIGURED', 'Set STRIPE_SECRET_KEY env var to enable Stripe', 400);
+      }
+      const userId = String(req.body?.user_id ?? 'usr_demo');
+      const cardNumber = String(req.body?.card_number ?? '4242424242424242');
+      const stripe = new Stripe(config.stripeSecretKey, { apiVersion: '2025-01-27.acacia' as any });
+
+      const store = service.getStore();
+      const endUser = store.getEndUserById(userId);
+      if (!endUser) throw new DomainError('USER_NOT_FOUND', `User ${userId} not found`, 404);
+
+      const existingPm = store.getPreferredPaymentMethod(userId, 'card', 'card_default');
+      let customerId: string;
+      const existingMeta = existingPm ? safeJsonParse(existingPm.metadata_json, {} as Record<string, unknown>) : {};
+
+      if (existingMeta.stripe_customer_id && typeof existingMeta.stripe_customer_id === 'string') {
+        customerId = existingMeta.stripe_customer_id;
+      } else {
+        const customer = await stripe.customers.create({
+          email: endUser.email,
+          name: endUser.display_name,
+          metadata: { aegis_user_id: userId },
+        });
+        customerId = customer.id;
+      }
+
+      const pm = await stripe.paymentMethods.create({
+        type: 'card',
+        card: { token: `tok_visa` },
+      });
+      await stripe.paymentMethods.attach(pm.id, { customer: customerId });
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: pm.id },
+      });
+
+      const last4 = pm.card?.last4 ?? '4242';
+      const brand = pm.card?.brand ?? 'visa';
+      const newMeta = JSON.stringify({ psp: 'stripe', brand, last4, stripe_customer_id: customerId });
+
+      if (existingPm) {
+        store.updatePaymentMethod(existingPm.id, pm.id, `${brand.charAt(0).toUpperCase() + brand.slice(1)} **** ${last4}`, newMeta);
+      } else {
+        store.insertPaymentMethod(userId, 'card', `${brand.charAt(0).toUpperCase() + brand.slice(1)} **** ${last4}`, pm.id, newMeta);
+      }
+
+      res.json({
+        ok: true,
+        stripe_customer_id: customerId,
+        stripe_payment_method_id: pm.id,
+        card: { brand, last4 },
+        message: `Stripe test card linked for ${userId}. Run 'npm run dev' and create a payment request to test.`,
+      });
     } catch (error) {
       next(error);
     }

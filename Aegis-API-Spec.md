@@ -388,7 +388,325 @@ interface CallbackPayload {
 ## 6. 与其它规格的对应关系
 
 - 状态枚举与流程与 [Aegis-App-Flow-Spec.md](Aegis-App-Flow-Spec.md) 一致。
-- 移动端拉取详情、提交审批等若需额外端点（如 App 专用 `GET /v1/me/requests`），可在本文档或 OpenAPI 中追加，与上述 Agent 端点区分鉴权方式（用户 token vs Agent API Key）。
+- 移动端拉取详情、提交审批使用 **App 侧 API**（§9），以 magic link `token` 鉴权，与 Agent API Key 区分。
+
+---
+
+## 9. App 侧 API（移动端）
+
+移动端通过以下两种方式鉴权（无 Agent API Key），**二选一**：
+
+1. **Magic link token**（从邮件/推送深链进入）：Deep Link 格式 `aegis://approve?token=<token>`
+2. **Action ID + User ID**（从 App 内待审批列表点击进入）：无需 token，直接用列表中的 `action_id` 配合当前用户 `user_id`
+
+### 9.1. GET /api/app/approval
+
+拉取审批上下文（用于展示审批详情页）。支持两种鉴权路径，**二选一**：
+
+**Request — 路径 A：Magic Link Token（从邮件/推送深链进入）**
+
+| 方式 | 参数 | 必填 | 说明 |
+|------|------|------|------|
+| Query | `token` | 是 | Magic link token（邮件或推送中的审批链接所含） |
+
+示例：`GET /api/app/approval?token=mltok_xxx`
+
+**Request — 路径 B：Action ID + User ID（从待审批列表点击进入）**
+
+| 方式 | 参数 | 必填 | 说明 |
+|------|------|------|------|
+| Query | `action_id` | 是 | Action ID（从 `GET /api/app/pending` 列表获取） |
+| Query | `user_id` | 是 | 用户 ID（与 pending 列表请求一致） |
+
+示例：`GET /api/app/approval?action_id=act_xxx&user_id=usr_demo`
+
+> **优先级：** 若同时传入 `token` 和 `action_id`，以 `token` 为准。
+
+**Response — 200 OK**
+
+```json
+{
+  "valid": true,
+  "token": "mltok_xxx",
+  "already_decided": false,
+  "decision": null,
+  "action": {
+    "action_id": "act_xxx",
+    "status": "awaiting_approval",
+    "action_type": "payment",
+    "end_user_id": "usr_demo",
+    "details": {
+      "amount": "19.99",
+      "currency": "USD",
+      "recipient_name": "Demo Merchant",
+      "description": "Test payment"
+    },
+    "callback_url": "https://...",
+    "created_at": "2026-02-23T10:00:00Z",
+    "expires_at": "2026-02-23T11:00:00Z"
+  },
+  "end_user": {
+    "id": "usr_demo",
+    "email": "user@example.com",
+    "display_name": "Demo User"
+  }
+}
+```
+
+| Action 字段 | 类型 | 说明 |
+|-------------|------|------|
+| `created_at` | string | ISO 8601 请求创建时间 |
+| `expires_at` | string | ISO 8601 审批过期时间 |
+
+当 `valid: false` 或 token/action_id 无效/过期时，返回 200 且 `valid: false`、`reason` 说明原因。路径 B 中 `user_id` 与 action 所属用户不匹配时返回 `400`。
+
+### 9.2. POST /api/app/approval/decision
+
+提交批准或拒绝。支持两种鉴权路径，**二选一**：
+
+**Request Body — 路径 A：Magic Link Token**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `token` | string | 是 | 同 GET 的 token |
+| `decision` | string | 是 | `approve` \| `deny` |
+| `decision_source` | string | 否 | 默认 `app_biometric`；可选 `app_biometric`、`web_magic_link` |
+
+**Request Body — 路径 B：Action ID + User ID（从待审批列表进入时使用）**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action_id` | string | 是 | Action ID |
+| `user_id` | string | 是 | 用户 ID（后端校验与 action 所属用户一致） |
+| `decision` | string | 是 | `approve` \| `deny` |
+| `decision_source` | string | 否 | 默认 `app_biometric`；可选 `app_biometric`、`web_magic_link` |
+
+> **优先级：** 若 body 中同时传入 `token` 和 `action_id`，以 `token` 为准。
+
+**Response — 200 OK**
+
+```json
+{
+  "ok": true,
+  "action_id": "act_xxx",
+  "request_id": "act_xxx",
+  "status": "approved"
+}
+```
+
+**Error Responses**
+
+- `400` — token/action_id 缺失、decision 非法、decision_source 非法、user_id 与 action 不匹配
+- `409` — 请求已非 awaiting_approval 状态
+- `410` — 审批已过期
+
+### 9.3. GET /api/app/pending
+
+获取当前用户所有待审批的请求列表（状态为 `awaiting_approval`），供首页展示。
+
+**Request**
+
+| 方式 | 参数 | 必填 | 类型 | 说明 |
+|------|------|------|------|------|
+| Query | `user_id` | 是 | string | 用户 ID（如 `usr_demo`） |
+
+**Response — 200 OK**
+
+```json
+{
+  "items": [
+    {
+      "action_id": "act_xxx",
+      "status": "awaiting_approval",
+      "action_type": "payment",
+      "end_user_id": "usr_demo",
+      "details": {
+        "amount": "19.99",
+        "currency": "USD",
+        "recipient_name": "Demo Merchant",
+        "description": "Test payment"
+      },
+      "callback_url": "https://...",
+      "created_at": "2026-02-23T10:00:00Z",
+      "expires_at": "2026-02-23T11:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `items` | array | Action 对象数组，按创建时间倒序；空列表时为 `[]` |
+| `items[].created_at` | string | ISO 8601 请求创建时间（用于列表中显示时间） |
+| `count` | number | items 数组长度 |
+
+**Error Responses**
+
+- `400`（`MISSING_USER_ID`）— 缺少 `user_id` 查询参数
+- `500`（`INTERNAL_ERROR`）— 服务器内部错误
+
+---
+
+### 9.4. GET /api/app/history
+
+获取当前用户所有请求的历史记录（所有状态），支持分页，供历史/审计页展示。
+
+**Request**
+
+| 方式 | 参数 | 必填 | 类型 | 默认值 | 说明 |
+|------|------|------|------|--------|------|
+| Query | `user_id` | 是 | string | — | 用户 ID |
+| Query | `limit` | 否 | number | `50` | 每页返回条数，范围 1–200 |
+| Query | `offset` | 否 | number | `0` | 偏移量（从 0 开始） |
+
+**Response — 200 OK**
+
+```json
+{
+  "items": [
+    {
+      "action_id": "act_xxx",
+      "status": "approved",
+      "action_type": "payment",
+      "end_user_id": "usr_demo",
+      "details": {
+        "amount": "19.99",
+        "currency": "USD",
+        "recipient_name": "Demo Merchant",
+        "description": "Test payment"
+      },
+      "callback_url": "https://...",
+      "created_at": "2026-02-23T10:00:00Z",
+      "expires_at": "2026-02-23T11:00:00Z"
+    }
+  ],
+  "total": 42,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `items` | array | Action 对象数组，按创建时间倒序 |
+| `items[].created_at` | string | ISO 8601 请求创建时间 |
+| `total` | number | 该用户所有记录总数（用于分页计算） |
+| `limit` | number | 本次请求的 limit 值 |
+| `offset` | number | 本次请求的 offset 值 |
+
+**Error Responses**
+
+- `400`（`MISSING_USER_ID`）— 缺少 `user_id` 查询参数
+- `500`（`INTERNAL_ERROR`）— 服务器内部错误
+
+**分页示例：** 第 2 页（每页 20 条）→ `GET /api/app/history?user_id=usr_demo&limit=20&offset=20`
+
+---
+
+### 9.5. 与 Agent API 的区别
+
+| 项目 | Agent API | App 侧 API |
+|------|-----------|-------------|
+| 鉴权 | API Key / OAuth | Magic link token 或 action_id+user_id（query/body） |
+| 用途 | 创建请求、查询状态、取消 | 拉取审批详情、提交批准/拒绝、待审批列表、历史记录 |
+| 端点前缀 | `/v1/request_action`、`/v1/actions/:id` | `/api/app/approval`、`/api/app/pending`、`/api/app/history` |
+
+---
+
+## 10. 设备注册 API（预留）
+
+> **状态：草案** — 供后续 Agent A 实现时对照。当前 MVP 不要求设备注册；推送（FCM/APNs）集成时需要此 API。
+
+移动端设备首次启动后注册推送 token，供后端向该设备发推送通知。
+
+### 10.1. POST /api/app/devices
+
+注册或更新设备推送 token。
+
+**Request Body**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `user_id` | string | 是 | 用户 ID |
+| `platform` | string | 是 | `ios` \| `android` |
+| `push_token` | string | 是 | FCM registration token（Android）或 APNs device token（iOS） |
+| `device_name` | string | 否 | 设备名称（如 `iPhone 15 Pro`），便于用户管理 |
+
+**Response — 201 Created**
+
+```json
+{
+  "device_id": "dev_xxx",
+  "user_id": "usr_demo",
+  "platform": "ios",
+  "registered_at": "2026-02-23T10:00:00Z"
+}
+```
+
+**幂等：** 同一 `user_id` + `push_token` 组合重复注册，更新 `device_name` 并返回已有 `device_id`。
+
+**Error Responses**
+
+- `400` — 缺少必填字段、platform 非法
+- `500` — 内部错误
+
+---
+
+### 10.2. GET /api/app/devices
+
+查询用户已注册的设备列表。
+
+**Request**
+
+| 方式 | 参数 | 必填 | 类型 | 说明 |
+|------|------|------|------|------|
+| Query | `user_id` | 是 | string | 用户 ID |
+
+**Response — 200 OK**
+
+```json
+{
+  "devices": [
+    {
+      "device_id": "dev_xxx",
+      "platform": "ios",
+      "device_name": "iPhone 15 Pro",
+      "registered_at": "2026-02-23T10:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+### 10.3. DELETE /api/app/devices/:device_id
+
+注销设备（用户退出登录或移除设备时调用）。
+
+**Request**
+
+| 方式 | 参数 | 必填 | 说明 |
+|------|------|------|------|
+| Path | `device_id` | 是 | 设备 ID |
+| Query | `user_id` | 是 | 用户 ID（校验归属） |
+
+**Response — 200 OK**
+
+```json
+{
+  "ok": true,
+  "device_id": "dev_xxx",
+  "deleted": true
+}
+```
+
+**Error Responses**
+
+- `400` — 缺少 user_id
+- `403` — device_id 不属于该 user_id
+- `404` — device_id 不存在
 
 ---
 
@@ -408,3 +726,10 @@ interface CallbackPayload {
 | Callback Payload（拒绝） | §3.1 | Webhook 回调示例 |
 | Callback Payload（失败） | §3.1 | Webhook 回调示例 |
 | TypeScript 类型 | §4.2 | 数据模型类型定义 |
+| GET /api/app/approval | §9.1 | App 拉取审批详情 |
+| POST /api/app/approval/decision | §9.2 | App 提交批准/拒绝 |
+| GET /api/app/pending | §9.3 | App 获取待审批列表 |
+| GET /api/app/history | §9.4 | App 获取历史记录（分页） |
+| POST /api/app/devices | §10.1 | 注册设备推送 token（草案） |
+| GET /api/app/devices | §10.2 | 查询已注册设备（草案） |
+| DELETE /api/app/devices/:id | §10.3 | 注销设备（草案） |

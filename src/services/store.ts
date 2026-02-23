@@ -100,6 +100,15 @@ export interface WebauthnChallengeRecord {
   created_at: string;
 }
 
+export interface DeviceRecord {
+  id: string;
+  user_id: string;
+  platform: 'ios' | 'android';
+  push_token: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export class AegisStore {
   constructor(private readonly db: Database.Database) {}
 
@@ -148,6 +157,20 @@ export class AegisStore {
     return this.db
       .prepare('SELECT * FROM payment_methods WHERE end_user_id = ? ORDER BY is_default DESC, created_at ASC')
       .all(userId) as PaymentMethodRecord[];
+  }
+
+  updatePaymentMethod(pmId: string, externalToken: string, alias: string, metadataJson: string): void {
+    this.db.prepare(
+      'UPDATE payment_methods SET external_token = ?, alias = ?, metadata_json = ? WHERE id = ?'
+    ).run(externalToken, alias, metadataJson, pmId);
+  }
+
+  insertPaymentMethod(userId: string, rail: string, alias: string, externalToken: string, metadataJson: string): string {
+    const id = `pm_${randomId('pm').slice(-12)}`;
+    this.db.prepare(
+      'INSERT INTO payment_methods (id, end_user_id, rail, alias, external_token, metadata_json, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)'
+    ).run(id, userId, rail, alias, externalToken, metadataJson, nowIso());
+    return id;
   }
 
   getPreferredPaymentMethod(userId: string, rail: PaymentRail, preference: string): PaymentMethodRecord | null {
@@ -249,6 +272,22 @@ export class AegisStore {
       .all(status, limit) as ActionRecord[];
   }
 
+  listActionsByUserAndStatus(userId: string, status: ActionStatus, limit = 100): ActionRecord[] {
+    return this.db
+      .prepare('SELECT * FROM actions WHERE end_user_id = ? AND status = ? ORDER BY datetime(created_at) DESC LIMIT ?')
+      .all(userId, status, limit) as ActionRecord[];
+  }
+
+  listActionsByUser(userId: string, limit = 50, offset = 0): { rows: ActionRecord[]; total: number } {
+    const total = (this.db
+      .prepare('SELECT COUNT(1) as c FROM actions WHERE end_user_id = ?')
+      .get(userId) as { c: number }).c;
+    const rows = this.db
+      .prepare('SELECT * FROM actions WHERE end_user_id = ? ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?')
+      .all(userId, limit, offset) as ActionRecord[];
+    return { rows, total };
+  }
+
   transitionActionStatus(opts: TransitionActionOptions): ActionRecord {
     const now = nowIso();
     const tx = this.db.transaction(() => {
@@ -316,6 +355,68 @@ export class AegisStore {
         payload: { source },
       });
     })();
+  }
+
+  /**
+   * Atomically records a decision AND transitions the action status in one
+   * SQLite transaction, optionally consuming a magic link. Prevents the
+   * TOCTOU race where two concurrent requests could both pass the
+   * "awaiting_approval" check before either commits.
+   */
+  createDecisionAndTransition(opts: {
+    actionId: string;
+    actorUserId: string;
+    decision: 'approved' | 'denied';
+    source: DecisionSource;
+    details?: Record<string, unknown>;
+    consumeMagicLinkId?: string | null;
+  }): ActionRecord {
+    const now = nowIso();
+    const tx = this.db.transaction(() => {
+      const current = this.getActionById(opts.actionId);
+      if (!current) throw new Error(`Action not found: ${opts.actionId}`);
+      assertTransition(current.status, opts.decision);
+
+      const existingDec = this.db.prepare('SELECT id FROM decisions WHERE action_id = ?').get(opts.actionId) as { id: string } | undefined;
+      if (existingDec) throw new Error('Decision already recorded for action');
+
+      this.db
+        .prepare('INSERT INTO decisions (id, action_id, decision, source, actor_user_id, details_json, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(randomId('dec'), opts.actionId, opts.decision, opts.source, opts.actorUserId, JSON.stringify(opts.details ?? {}), now);
+      this.appendAuditLogInternal({
+        actionId: opts.actionId,
+        eventType: `decision.${opts.decision}`,
+        actorType: 'end_user',
+        actorId: opts.actorUserId,
+        payload: { source: opts.source },
+      });
+
+      let approvedAt = current.approved_at;
+      let deniedAt = current.denied_at;
+      let terminalAt = current.terminal_at;
+      if (opts.decision === 'approved') approvedAt = now;
+      if (opts.decision === 'denied') { deniedAt = now; terminalAt = now; }
+
+      this.db
+        .prepare('UPDATE actions SET status = ?, status_reason = ?, approved_at = ?, denied_at = ?, terminal_at = ?, updated_at = ? WHERE id = ?')
+        .run(opts.decision, null, approvedAt, deniedAt, terminalAt, now, opts.actionId);
+      this.appendAuditLogInternal({
+        actionId: opts.actionId,
+        eventType: `action.${opts.decision}`,
+        actorType: 'system',
+        actorId: null,
+        payload: { reason: null },
+      });
+
+      if (opts.consumeMagicLinkId) {
+        this.db.prepare('UPDATE magic_links SET consumed_at = COALESCE(consumed_at, ?) WHERE id = ?').run(now, opts.consumeMagicLinkId);
+      }
+    });
+
+    tx();
+    const next = this.getActionById(opts.actionId);
+    if (!next) throw new Error('Action missing after atomic decision+transition');
+    return next;
   }
 
   getDecisionByActionId(actionId: string): { decision: 'approved' | 'denied'; source: DecisionSource; submitted_at: string } | null {
@@ -747,6 +848,7 @@ export class AegisStore {
       },
       callback_url: action.callback_url,
       expires_at: action.expires_at,
+      created_at: action.created_at,
       metadata: safeJsonParse(action.metadata_json, {} as Record<string, unknown>),
       audit_count: this.countAuditLogsForAction(action.id),
       execution: execution
@@ -762,6 +864,60 @@ export class AegisStore {
           }
         : null,
     };
+  }
+
+  toActionApiResponseBatch(actions: ActionRecord[]): ActionApiResponse[] {
+    if (actions.length === 0) return [];
+    const ids = actions.map(a => a.id);
+    const placeholders = ids.map(() => '?').join(',');
+
+    const executions = this.db
+      .prepare(`SELECT * FROM executions WHERE action_id IN (${placeholders})`)
+      .all(...ids) as Array<{ action_id: string; rail: string; status: string; provider_reference: string | null; tx_hash: string | null; payment_id: string | null; error_code: string | null; error_message: string | null; result_json: string }>;
+    const execMap = new Map(executions.map(e => [e.action_id, e]));
+
+    const auditCounts = this.db
+      .prepare(`SELECT action_id, COUNT(1) as c FROM audit_logs WHERE action_id IN (${placeholders}) GROUP BY action_id`)
+      .all(...ids) as Array<{ action_id: string; c: number }>;
+    const auditMap = new Map(auditCounts.map(a => [a.action_id, a.c]));
+
+    return actions.map(action => {
+      const execution = execMap.get(action.id) ?? null;
+      const executionRaw = execution ? safeJsonParse<Record<string, unknown>>(execution.result_json, {}) : null;
+      const sandboxInjectedFault = executionRaw && typeof executionRaw.sandbox_injected_fault === 'string' ? executionRaw.sandbox_injected_fault : null;
+      return {
+        action_id: action.id,
+        status: action.status,
+        action_type: 'payment' as const,
+        end_user_id: action.end_user_id,
+        details: {
+          amount: action.amount,
+          currency: action.currency,
+          recipient_name: action.recipient_name,
+          description: action.description,
+          payment_rail: action.payment_rail,
+          payment_method_preference: action.payment_method_preference,
+          recipient_reference: action.recipient_reference,
+        },
+        callback_url: action.callback_url,
+        expires_at: action.expires_at,
+        created_at: action.created_at,
+        metadata: safeJsonParse(action.metadata_json, {} as Record<string, unknown>),
+        audit_count: auditMap.get(action.id) ?? 0,
+        execution: execution
+          ? {
+              rail: execution.rail as any,
+              status: execution.status,
+              provider_reference: execution.provider_reference,
+              tx_hash: execution.tx_hash,
+              payment_id: execution.payment_id,
+              error_code: execution.error_code,
+              error_message: execution.error_message,
+              sandbox_injected_fault: sandboxInjectedFault,
+            }
+          : null,
+      };
+    });
   }
 
   buildWebhookPayload(actionId: string, eventType: WebhookEventType): WebhookPayload {
@@ -821,5 +977,36 @@ export class AegisStore {
     const d = new Date();
     d.setSeconds(d.getSeconds() + delaysSec[idx]);
     return d.toISOString();
+  }
+
+  upsertDevice(userId: string, platform: 'ios' | 'android', pushToken: string): DeviceRecord {
+    const now = nowIso();
+    const existing = this.db
+      .prepare('SELECT * FROM devices WHERE user_id = ? AND platform = ?')
+      .get(userId, platform) as DeviceRecord | undefined;
+
+    if (existing) {
+      this.db
+        .prepare('UPDATE devices SET push_token = ?, updated_at = ? WHERE id = ?')
+        .run(pushToken, now, existing.id);
+      return { ...existing, push_token: pushToken, updated_at: now };
+    }
+
+    const id = randomId('dev');
+    this.db
+      .prepare('INSERT INTO devices (id, user_id, platform, push_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, userId, platform, pushToken, now, now);
+    return { id, user_id: userId, platform, push_token: pushToken, created_at: now, updated_at: now };
+  }
+
+  listDevicesForUser(userId: string): DeviceRecord[] {
+    return this.db
+      .prepare('SELECT * FROM devices WHERE user_id = ? ORDER BY datetime(created_at) DESC')
+      .all(userId) as DeviceRecord[];
+  }
+
+  deleteDevice(deviceId: string): boolean {
+    const result = this.db.prepare('DELETE FROM devices WHERE id = ?').run(deviceId);
+    return result.changes > 0;
   }
 }

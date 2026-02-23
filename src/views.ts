@@ -170,17 +170,26 @@ export function renderHomePage(): string {
       <section class="card" id="integrations">
         <h2>3-Minute Integration Guides (Agent-First)</h2>
         <p>In 2026, developers do not want a 50-page API manual first. They want to know one thing: <strong>“How do I plug this into my agent loop?”</strong> Start here.</p>
+        <div class="card" style="border-color:#dbe5fb; background:#f8fbff; margin-bottom:14px;">
+          <div class="actions" id="integrationTabs">
+            <button class="ghost" type="button" data-tab="manus" style="background:#eaf1ff;">Manus</button>
+            <button class="ghost" type="button" data-tab="openclaw">OpenClaw</button>
+            <button class="ghost" type="button" data-tab="curl">curl</button>
+            <button class="ghost" type="button" data-tab="python">Python SDK</button>
+          </div>
+          <div class="small" style="margin-top:8px;">Copy-pasteable examples first. Full API docs second.</div>
+        </div>
         <div class="grid cols-2">
-          <div class="card" style="border-color:#dbe5fb; background:linear-gradient(180deg,#ffffff,#f8fbff);">
+          <div class="card integration-panel" data-panel="manus" style="border-color:#dbe5fb; background:linear-gradient(180deg,#ffffff,#f8fbff);">
             <div class="badge" style="background:#edf3ff;color:#1d4ed8;border-color:#bfdbfe;">For Manus Developers</div>
             <h3>Build an “Autonomous Payment” Skill</h3>
             <p>Manus excels at sandbox execution. Aegis gives it a safe payment gateway so it can complete a full loop from research to purchase without exposing credentials.</p>
             <p><strong>Step 1: Register an Aegis Skill in <code>SKILL.md</code></strong></p>
-            <pre><code>## Skill: Aegis Payments
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="manus-skill" style="float:right">Copy</button><code id="manus-skill">## Skill: Aegis Payments
 **Description**: Allow Manus to buy goods or book services through Aegis in a controlled environment.
 **Required API**: \`AEGIS_API_KEY\` (set in Manus Environment Variables)</code></pre>
             <p><strong>Step 2: Add the core tool in your Manus sandbox (Python)</strong></p>
-            <pre><code>import aegis_pay
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="manus-python" style="float:right">Copy</button><code id="manus-python">import aegis_pay
 
 gateway = aegis_pay.Client(api_key=\"AEGIS_API_KEY\")
 
@@ -196,12 +205,12 @@ print(response.message)  # WAITING_FOR_AUTH: Check phone / watch</code></pre>
             <p class="small">When Aegis returns a waiting state, Manus prompts the user to approve. Once approved on phone/watch, Manus resumes and finalizes the order.</p>
           </div>
 
-          <div class="card" style="border-color:#dbe5fb; background:#fff;">
+          <div class="card integration-panel" data-panel="openclaw" style="border-color:#dbe5fb; background:#fff;">
             <div class="badge" style="background:#edf7ff;color:#075985;border-color:#bae6fd;">For OpenClaw Developers</div>
             <h3>Add a “Financial Control” Tool</h3>
             <p>OpenClaw (ex-Moltbot) focuses on local control and multi-channel automation. Aegis lets your Telegram/Slack bot pay safely while keys remain in Aegis’ secured execution boundary.</p>
             <p><strong>Step 1: Configure <code>~/.openclaw/tools.json</code></strong></p>
-            <pre><code>{
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="openclaw-tool" style="float:right">Copy</button><code id="openclaw-tool">{
   \"name\": \"aegis_secure_pay\",
   \"description\": \"Pay via Aegis with ETH/SOL or card rails\",
   \"parameters\": {
@@ -213,15 +222,82 @@ print(response.message)  # WAITING_FOR_AUTH: Check phone / watch</code></pre>
   }
 }</code></pre>
             <p><strong>Step 2: Define policy-as-code</strong></p>
-            <pre><code>Allow OpenClaw to pay up to $20/month for github.com subscriptions.
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="openclaw-policy" style="float:right">Copy</button><code id="openclaw-policy">Allow OpenClaw to pay up to $20/month for github.com subscriptions.
 Anything above requires approval on Apple Watch or phone.</code></pre>
             <p><strong>Step 3: Real-time operator interaction</strong></p>
-            <pre><code>User: \"OpenClaw, renew next month's Copilot.\"
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="openclaw-dialog" style="float:right">Copy</button><code id="openclaw-dialog">User: \"OpenClaw, renew next month's Copilot.\"
 OpenClaw: \"Requesting $10 via Aegis. Please confirm on your watch or phone.\"
 User: (double-clicks watch)
 OpenClaw: \"Payment succeeded. Subscription renewed.\"</code></pre>
           </div>
+
+          <div class="card integration-panel" data-panel="curl" style="display:none; border-color:#dbe5fb; background:#fff;">
+            <div class="badge" style="background:#eefaf4;color:#166534;border-color:#bbf7d0;">Quickstart via curl</div>
+            <h3>Request a Payment in 1 Call</h3>
+            <p>Use this in any agent framework before building a custom SDK wrapper.</p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="curl-request" style="float:right">Copy</button><code id="curl-request">curl -s https://api.aegis.com/v1/request_action \\
+  -H 'Content-Type: application/json' \\
+  -H 'X-Aegis-API-Key: $AEGIS_API_KEY' \\
+  -d '{
+    \"idempotency_key\": \"agent-run-001\",
+    \"end_user_id\": \"usr_demo\",
+    \"action_type\": \"payment\",
+    \"callback_url\": \"https://agent.example.com/aegis/callback\",
+    \"details\": {
+      \"amount\": \"49.90\",
+      \"currency\": \"USD\",
+      \"recipient_name\": \"Amazon\",
+      \"description\": \"AI 2026 hardcover\",
+      \"payment_rail\": \"card\",
+      \"payment_method_preference\": \"card_default\",
+      \"recipient_reference\": \"merchant_api:amazon\"
+    }
+  }'</code></pre>
+            <p class="small">Your agent should treat the returned approval URL / callback lifecycle as the continuation point in the workflow.</p>
+          </div>
+
+          <div class="card integration-panel" data-panel="python" style="display:none; border-color:#dbe5fb; background:#fff;">
+            <div class="badge" style="background:#f4f0ff;color:#6d28d9;border-color:#ddd6fe;">Python SDK Wrapper Pattern</div>
+            <h3>Wrap Aegis into Your Agent Runtime</h3>
+            <p>Minimal client abstraction for tool-calling frameworks.</p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="python-sdk" style="float:right">Copy</button><code id="python-sdk">class AegisTool:\n    def __init__(self, api_key, base_url=\"https://api.aegis.com\"):\n        self.api_key = api_key\n        self.base_url = base_url\n\n    def request_payment(self, payload):\n        import requests\n        r = requests.post(\n            f\"{self.base_url}/v1/request_action\",\n            headers={\"X-Aegis-API-Key\": self.api_key},\n            json=payload,\n            timeout=20,\n        )\n        r.raise_for_status()\n        return r.json()\n\n# In your agent tool graph:\n# 1) call request_payment\n# 2) surface approval request to user\n# 3) resume on webhook callback</code></pre>
+          </div>
         </div>
+        <script>
+          (() => {
+            const tabRoot = document.getElementById('integrationTabs');
+            if (!tabRoot) return;
+            const tabs = Array.from(tabRoot.querySelectorAll('[data-tab]'));
+            const panels = Array.from(document.querySelectorAll('.integration-panel'));
+            const setTab = (name) => {
+              tabs.forEach(btn => {
+                const active = btn.getAttribute('data-tab') === name;
+                btn.style.background = active ? '#eaf1ff' : '';
+                btn.style.borderColor = active ? '#bfdbfe' : '';
+              });
+              panels.forEach(panel => {
+                panel.style.display = panel.getAttribute('data-panel') === name ? '' : 'none';
+              });
+            };
+            tabs.forEach(btn => btn.addEventListener('click', () => setTab(btn.getAttribute('data-tab'))));
+            setTab('manus');
+
+            document.querySelectorAll('.copy-btn').forEach(btn => {
+              btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-copy');
+                const node = id ? document.getElementById(id) : null;
+                if (!node) return;
+                const text = node.textContent || '';
+                try {
+                  await navigator.clipboard.writeText(text);
+                  const old = btn.textContent;
+                  btn.textContent = 'Copied';
+                  setTimeout(() => { btn.textContent = old; }, 900);
+                } catch {}
+              });
+            });
+          })();
+        </script>
       </section>
 
       <section class="card">

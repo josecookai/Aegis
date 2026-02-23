@@ -8,7 +8,8 @@
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "demo": "bash scripts/demo.sh"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +21,7 @@
     "better-sqlite3": "^12.6.2",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
+    "stripe": "^20.3.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -414,6 +414,266 @@ describe('Aegis MVP prototype', () => {
     expect(final.body.action.status).toBe('succeeded');
   });
 
+  it('app approval API: GET/POST by action_id+user_id (no token needed)', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_app_action_id_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: `${baseUrl}/_test/callback`,
+        details: {
+          amount: '18.00',
+          currency: 'USD',
+          recipient_name: 'ActionId Merchant',
+          description: 'Action ID based approval',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:action_id_test',
+        },
+      })
+      .expect(201);
+
+    const actionId = String(create.body.action.action_id);
+
+    const getRes = await api
+      .get(`/api/app/approval?action_id=${actionId}&user_id=usr_demo`)
+      .expect(200);
+    expect(getRes.body.valid).toBe(true);
+    expect(getRes.body.already_decided).toBe(false);
+    expect(getRes.body.action.details.amount).toBe('18.00');
+    expect(getRes.body.action.created_at).toBeTruthy();
+
+    const wrongUser = await api
+      .get(`/api/app/approval?action_id=${actionId}&user_id=usr_other`)
+      .expect(400);
+    expect(wrongUser.body.valid).toBe(false);
+
+    await api
+      .post('/api/app/approval/decision')
+      .send({ action_id: actionId, user_id: 'usr_demo', decision: 'approve', decision_source: 'app_biometric' })
+      .expect(200);
+
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
+
+    const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(final.body.action.status).toBe('succeeded');
+  });
+
+  it('GET /api/app/pending returns only awaiting_approval actions for user', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    const makeAction = async (idempKey: string, amount: string) => {
+      const res = await api
+        .post('/v1/request_action')
+        .set('x-aegis-api-key', 'aegis_demo_agent_key')
+        .send({
+          idempotency_key: idempKey,
+          end_user_id: 'usr_demo',
+          action_type: 'payment',
+          callback_url: `${baseUrl}/_test/callback`,
+          details: {
+            amount,
+            currency: 'USD',
+            recipient_name: 'Pending Test Merchant',
+            description: 'pending list test',
+            payment_rail: 'card',
+            payment_method_preference: 'card_default',
+            recipient_reference: 'merchant_api:pending_test',
+          },
+        })
+        .expect(201);
+      return String(res.body.action.action_id);
+    };
+
+    const pendingId1 = await makeAction('t_pending_list_1', '1.00');
+    const pendingId2 = await makeAction('t_pending_list_2', '2.00');
+    const deniedId = await makeAction('t_pending_list_denied', '3.00');
+    await api.post(`/api/dev/actions/${deniedId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'deny' }).expect(200);
+
+    const pendingRes = await api.get('/api/app/pending?user_id=usr_demo').expect(200);
+    expect(pendingRes.body.count).toBeGreaterThanOrEqual(2);
+    const pendingIds = pendingRes.body.items.map((i: any) => i.action_id);
+    expect(pendingIds).toContain(pendingId1);
+    expect(pendingIds).toContain(pendingId2);
+    expect(pendingIds).not.toContain(deniedId);
+    for (const item of pendingRes.body.items) {
+      expect(item.status).toBe('awaiting_approval');
+    }
+
+    const emptyRes = await api.get('/api/app/pending?user_id=usr_nonexistent').expect(403);
+    expect(emptyRes.body.error).toBe('INVALID_USER');
+
+    const missingRes = await api.get('/api/app/pending').expect(400);
+    expect(missingRes.body.error).toBe('MISSING_USER_ID');
+  });
+
+  it('GET /api/app/history returns all actions for user sorted by created_at DESC', async () => {
+    const api = request(runtime.app);
+
+    const historyRes = await api.get('/api/app/history?user_id=usr_demo&limit=50&offset=0').expect(200);
+    expect(historyRes.body.items.length).toBeGreaterThanOrEqual(3);
+    expect(typeof historyRes.body.total).toBe('number');
+    expect(historyRes.body.limit).toBe(50);
+    expect(historyRes.body.offset).toBe(0);
+
+    const statuses = historyRes.body.items.map((i: any) => i.status);
+    expect(statuses.some((s: string) => s === 'awaiting_approval')).toBe(true);
+    expect(statuses.some((s: string) => s !== 'awaiting_approval')).toBe(true);
+
+    const paginatedRes = await api.get('/api/app/history?user_id=usr_demo&limit=2&offset=0').expect(200);
+    expect(paginatedRes.body.items.length).toBeLessThanOrEqual(2);
+    expect(paginatedRes.body.total).toBe(historyRes.body.total);
+
+    const emptyRes = await api.get('/api/app/history?user_id=usr_nonexistent').expect(403);
+    expect(emptyRes.body.error).toBe('INVALID_USER');
+
+    const missingRes = await api.get('/api/app/history').expect(400);
+    expect(missingRes.body.error).toBe('MISSING_USER_ID');
+  });
+
+  it('POST /v1/request_action returns Idempotency-Key header and Idempotency-Replayed on replay', async () => {
+    const api = request(runtime.app);
+    const body = {
+      idempotency_key: 'idem_header_test',
+      end_user_id: 'usr_demo',
+      action_type: 'payment' as const,
+      callback_url: `${baseUrl}/_test/callback`,
+      details: {
+        amount: '5.00',
+        currency: 'USD',
+        recipient_name: 'Idem Header Merchant',
+        description: 'Idempotency header test',
+        payment_rail: 'card' as const,
+        payment_method_preference: 'card_default',
+        recipient_reference: 'merchant_api:idem_header',
+      },
+    };
+
+    const first = await api.post('/v1/request_action').set('x-aegis-api-key', 'aegis_demo_agent_key').send(body).expect(201);
+    expect(first.headers['idempotency-key']).toBe('idem_header_test');
+    expect(first.headers['idempotency-replayed']).toBeUndefined();
+
+    const second = await api.post('/v1/request_action').set('x-aegis-api-key', 'aegis_demo_agent_key').send(body).expect(201);
+    expect(second.headers['idempotency-key']).toBe('idem_header_test');
+    expect(second.headers['idempotency-replayed']).toBe('true');
+    expect(second.body.action.action_id).toBe(first.body.action.action_id);
+  });
+
+  it('GET /v1/requests/:id returns same result as /v1/actions/:id', async () => {
+    const api = request(runtime.app);
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_requests_alias_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: `${baseUrl}/_test/callback`,
+        details: {
+          amount: '6.00',
+          currency: 'USD',
+          recipient_name: 'Alias Merchant',
+          description: 'Requests alias test',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:alias_test',
+        },
+      })
+      .expect(201);
+
+    const actionId = String(create.body.action.action_id);
+    const viaActions = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    const viaRequests = await api.get(`/v1/requests/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(viaRequests.body).toEqual(viaActions.body);
+
+    await api.get('/v1/requests/nonexistent').set('x-aegis-api-key', 'aegis_demo_agent_key').expect(404);
+  });
+
+  it('device registration: POST, GET, upsert, DELETE', async () => {
+    const api = request(runtime.app);
+
+    const reg1 = await api
+      .post('/api/app/devices')
+      .send({ user_id: 'usr_demo', platform: 'ios', push_token: 'apns_token_abc' })
+      .expect(200);
+    expect(reg1.body.ok).toBe(true);
+    expect(reg1.body.device_id).toBeTruthy();
+    const deviceId = reg1.body.device_id;
+
+    const list1 = await api.get('/api/app/devices?user_id=usr_demo').expect(200);
+    expect(list1.body.devices.some((d: any) => d.id === deviceId && d.push_token === 'apns_token_abc')).toBe(true);
+
+    const reg2 = await api
+      .post('/api/app/devices')
+      .send({ user_id: 'usr_demo', platform: 'ios', push_token: 'apns_token_updated' })
+      .expect(200);
+    expect(reg2.body.device_id).toBe(deviceId);
+
+    const list2 = await api.get('/api/app/devices?user_id=usr_demo').expect(200);
+    const iosDevice = list2.body.devices.find((d: any) => d.id === deviceId);
+    expect(iosDevice.push_token).toBe('apns_token_updated');
+
+    const regAndroid = await api
+      .post('/api/app/devices')
+      .send({ user_id: 'usr_demo', platform: 'android', push_token: 'fcm_token_xyz' })
+      .expect(200);
+    expect(regAndroid.body.device_id).toBeTruthy();
+    expect(regAndroid.body.device_id).not.toBe(deviceId);
+
+    await api.delete(`/api/app/devices/${deviceId}`).expect(200);
+    const list3 = await api.get('/api/app/devices?user_id=usr_demo').expect(200);
+    expect(list3.body.devices.some((d: any) => d.id === deviceId)).toBe(false);
+
+    await api.delete('/api/app/devices/nonexistent').expect(404);
+
+    await api.post('/api/app/devices').send({ user_id: 'usr_demo' }).expect(400);
+    await api.post('/api/app/devices').send({ user_id: 'usr_demo', platform: 'windows', push_token: 'x' }).expect(400);
+    const missingUserId = await api.get('/api/app/devices');
+    expect([400, 401]).toContain(missingUserId.status);
+  });
+
+  it('webhook deliveries include X-Aegis-Signature header', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_webhook_sig_verify',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: `${baseUrl}/_test/callback`,
+        details: {
+          amount: '4.00',
+          currency: 'USD',
+          recipient_name: 'Sig Test Merchant',
+          description: 'Webhook signature test',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:sig_test',
+        },
+      })
+      .expect(201);
+
+    const actionId = String(create.body.action.action_id);
+    await api.post(`/api/dev/actions/${actionId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'approve' }).expect(200);
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
+
+    const callbacks = runtime.testCallbackInbox.filter(
+      (e) => e.headers['x-aegis-event-type'] === 'action.approved' || e.headers['x-aegis-event-type'] === 'action.succeeded'
+    );
+    const recent = callbacks[callbacks.length - 1];
+    expect(recent).toBeTruthy();
+    expect(recent.headers['x-aegis-signature']).toBeTruthy();
+    expect(recent.headers['x-aegis-signature']).toMatch(/^t=\d+,v1=[0-9a-f]+$/);
+  });
+
   it('exposes passkey registration options for dev enrollment', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);

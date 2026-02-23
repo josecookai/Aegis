@@ -28,6 +28,7 @@ export class DomainError extends Error {
 export interface CreateActionResult {
   action: ActionRecord;
   approvalUrl: string;
+  idempotencyReplayed: boolean;
 }
 
 export class AegisService {
@@ -41,6 +42,10 @@ export class AegisService {
 
   getStore(): AegisStore {
     return this.store;
+  }
+
+  getConfig(): AppConfig {
+    return this.config;
   }
 
   authenticateAgent(apiKey: string | null | undefined): AgentRecord {
@@ -67,6 +72,7 @@ export class AegisService {
       return {
         action: existing,
         approvalUrl: approveUrl || `${this.config.baseUrl}/actions/${existing.id}`,
+        idempotencyReplayed: true,
       };
     }
 
@@ -121,6 +127,7 @@ export class AegisService {
     return {
       action: awaiting,
       approvalUrl: `${this.config.baseUrl}/approve/${encodeURIComponent(magicLink.token)}`,
+      idempotencyReplayed: false,
     };
   }
 
@@ -225,6 +232,55 @@ export class AegisService {
     };
   }
 
+  getApprovalViewByActionId(actionId: string, userId: string): {
+    valid: boolean;
+    reason?: string;
+    action?: ActionRecord;
+    endUser?: { id: string; email: string; display_name: string };
+    alreadyDecided?: boolean;
+    decision?: { decision: 'approved' | 'denied'; source: string; submitted_at: string } | null;
+  } {
+    const action = this.store.getActionById(actionId);
+    if (!action) return { valid: false, reason: 'Action not found' };
+    if (action.end_user_id !== userId) return { valid: false, reason: 'User mismatch' };
+    const endUser = this.store.getEndUserById(action.end_user_id);
+    if (!endUser) return { valid: false, reason: 'User not found' };
+    const decision = this.store.getDecisionByActionId(action.id);
+    const terminal = TERMINAL_STATUSES.has(action.status);
+    return {
+      valid: true,
+      action,
+      endUser,
+      alreadyDecided: terminal || Boolean(decision),
+      decision,
+    };
+  }
+
+  submitDecisionByActionId(actionId: string, userId: string, decision: 'approve' | 'deny', source: DecisionSource): ActionRecord {
+    const view = this.getApprovalViewByActionId(actionId, userId);
+    if (!view.valid || !view.action || !view.endUser) {
+      throw new DomainError('INVALID_REQUEST', view.reason ?? 'Cannot resolve action', 400);
+    }
+    if (new Date(view.action.expires_at).getTime() < Date.now() && view.action.status === 'awaiting_approval') {
+      const expired = this.store.transitionActionStatus({ actionId: view.action.id, to: 'expired', reason: 'approval_timeout' });
+      this.queueCallbackForActionStatus(expired);
+      throw new DomainError('ACTION_EXPIRED', 'Approval window expired', 410);
+    }
+    if (view.action.status !== 'awaiting_approval') {
+      throw new DomainError('INVALID_STATE', `Action is no longer pending approval (current=${view.action.status})`, 409);
+    }
+    const normalized = decision === 'approve' ? 'approved' : 'denied';
+    const updated = this.store.createDecisionAndTransition({
+      actionId: view.action.id,
+      actorUserId: view.endUser.id,
+      decision: normalized,
+      source,
+      details: { via: 'app_action_id', token_hash_only: false },
+    });
+    this.queueCallbackForActionStatus(updated);
+    return updated;
+  }
+
   submitApprovalDecision(rawToken: string, decision: 'approve' | 'deny', source: DecisionSource): ActionRecord {
     const view = this.getApprovalView(rawToken);
     if (!view.valid || !view.action || !view.endUser || !view.magicLinkId) {
@@ -240,12 +296,14 @@ export class AegisService {
     }
 
     const normalized = decision === 'approve' ? 'approved' : 'denied';
-    this.store.createDecision(view.action.id, view.endUser.id, normalized, source, {
-      via: 'magic_link_web',
-      token_hash_only: true,
+    const updated = this.store.createDecisionAndTransition({
+      actionId: view.action.id,
+      actorUserId: view.endUser.id,
+      decision: normalized,
+      source,
+      details: { via: 'magic_link_web', token_hash_only: true },
+      consumeMagicLinkId: view.magicLinkId,
     });
-    const updated = this.store.transitionActionStatus({ actionId: view.action.id, to: normalized });
-    this.store.consumeMagicLink(view.magicLinkId);
     this.queueCallbackForActionStatus(updated);
     return updated;
   }
