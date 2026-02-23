@@ -53,7 +53,7 @@ npm install && npm run dev
 cd app && npm install && npx expo start --ios
 ```
 
-**验证：** 访问 `http://localhost:3000/healthz` 应返回 `ok`。
+**验证：** 访问 `http://localhost:3000/healthz` 应返回 `ok`。E2E 验收：`npm run e2e:verify`。
 
 | 变量 | 值 | 用途 |
 |------|-----|------|
@@ -115,6 +115,9 @@ cd app && npm install && npx expo start --ios
 | **移动端 UX** | UX Spec | 界面设计、信息架构、推送与深链、无障碍 | [Aegis-Mobile-UX-Spec.md](Aegis-Mobile-UX-Spec.md) |
 | **实施清单** | Todos | Phase 0～3 的 Todo 与 F-01～F-06 的验收 Checklist | [Aegis-Implementation-Todos.md](Aegis-Implementation-Todos.md) |
 | **E2E 演示脚本** | Demo | 9 步手动测试 + Checklist | [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md) |
+| **OpenClaw 配置** | Setup | MCP URL、环境变量、验证 tools | [docs/OpenClaw-Setup.md](docs/OpenClaw-Setup.md) |
+| **Manus 接入** | Setup | REST 直连 + MCP | [docs/Manus-Setup.md](docs/Manus-Setup.md) |
+| **E2E 验收 Checklist** | Verification | 验收结果、Peer Review、Bug 列表 | [docs/E2E-Verification-Checklist.md](docs/E2E-Verification-Checklist.md) |
 | **术语表** | Glossary | 统一术语定义，按字母和主题分类 | [Aegis-Glossary.md](Aegis-Glossary.md) |
 
 ---

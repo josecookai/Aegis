@@ -5,7 +5,7 @@ import { DomainError, AegisService } from '../services/aegis';
 import { AdminAuthService } from '../services/adminAuth';
 import { SandboxFaultService, FaultScope, SandboxPresetName } from '../services/sandboxFaults';
 import { WebAuthnService } from '../services/webauthn';
-import { renderActionAuditPage, renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage } from '../views';
+import { renderActionAuditPage, renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage, renderAddCardPage } from '../views';
 import { DecisionSource } from '../types';
 
 export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService, sandboxFaults: SandboxFaultService): Router {
@@ -171,6 +171,27 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     } catch (error) {
       next(error);
     }
+  });
+
+  router.get('/dev/add-card', (req, res) => {
+    const userId = String(req.query.user_id ?? 'usr_demo').trim();
+    const users = service.getStore().listEndUsers().map((u) => ({ id: u.id, email: u.email, display_name: u.display_name }));
+    const paymentMethods = service
+      .getStore()
+      .listPaymentMethodsForUser(userId)
+      .filter((m) => m.rail === 'card')
+      .map((m) => ({ id: m.id, alias: m.alias, is_default: !!m.is_default, created_at: m.created_at }));
+    const config = service.getConfig();
+    const baseUrl = config.baseUrl ?? `${req.protocol}://${req.get('host')}`;
+    res.type('html').send(
+      renderAddCardPage({
+        publishableKey: config.stripePublishableKey,
+        baseUrl,
+        userId,
+        users,
+        paymentMethods,
+      })
+    );
   });
 
   router.get('/dev/sandbox', (req, res) => {

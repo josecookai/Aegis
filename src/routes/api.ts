@@ -203,6 +203,132 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
     }
   });
 
+  // ─── Dev: Payment methods (Stripe Elements add card) ───────────────
+  router.post('/api/dev/payment-methods', async (req, res, next) => {
+    try {
+      const paymentMethodId = String(req.body?.payment_method_id ?? '').trim();
+      const userId = String(req.body?.user_id ?? 'usr_demo').trim();
+      if (!paymentMethodId || !paymentMethodId.startsWith('pm_')) {
+        throw new DomainError('INVALID_PAYMENT_METHOD', 'payment_method_id (Stripe pm_xxx) is required', 400);
+      }
+      const config = service.getConfig();
+      if (!config.stripeSecretKey) {
+        throw new DomainError('STRIPE_NOT_CONFIGURED', 'Set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY to add cards', 400);
+      }
+      const store = service.getStore();
+      const endUser = store.getEndUserById(userId);
+      if (!endUser) throw new DomainError('USER_NOT_FOUND', `User ${userId} not found`, 404);
+
+      const stripe = new Stripe(config.stripeSecretKey, { apiVersion: '2025-01-27.acacia' as any });
+      const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+      if (pm.type !== 'card' || !pm.card) {
+        throw new DomainError('INVALID_PAYMENT_METHOD', 'Only card payment methods are supported', 400);
+      }
+
+      const existingPm = store.getPreferredPaymentMethod(userId, 'card', 'card_default');
+      let customerId: string;
+      const existingMeta = existingPm ? safeJsonParse(existingPm.metadata_json, {} as Record<string, unknown>) : {};
+
+      if (existingMeta.stripe_customer_id && typeof existingMeta.stripe_customer_id === 'string') {
+        customerId = existingMeta.stripe_customer_id;
+      } else {
+        const customer = await stripe.customers.create({
+          email: endUser.email,
+          name: endUser.display_name,
+          metadata: { aegis_user_id: userId },
+        });
+        customerId = customer.id;
+      }
+
+      try {
+        await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+      } catch (attachErr: any) {
+        if (attachErr?.code === 'resource_already_attached_to_customer') {
+          throw new DomainError('CARD_ALREADY_SAVED', 'This card is already saved to another account', 400);
+        }
+        throw attachErr;
+      }
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      });
+
+      const last4 = pm.card.last4 ?? '****';
+      const brand = pm.card.brand ?? 'card';
+      const alias = `${brand.charAt(0).toUpperCase() + brand.slice(1)} **** ${last4}`;
+      const metadataJson = JSON.stringify({ psp: 'stripe', brand, last4, stripe_customer_id: customerId });
+
+      const pmId = store.insertPaymentMethod(userId, 'card', alias, paymentMethodId, metadataJson);
+
+      res.status(201).json({
+        ok: true,
+        payment_method_id: pmId,
+        stripe_payment_method_id: paymentMethodId,
+        card: { brand, last4, alias },
+        message: `Card ${alias} added successfully.`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/api/dev/payment-methods', (req, res, next) => {
+    try {
+      const userId = String(req.query.user_id ?? 'usr_demo').trim();
+      const store = service.getStore();
+      const endUser = store.getEndUserById(userId);
+      if (!endUser) throw new DomainError('USER_NOT_FOUND', `User ${userId} not found`, 404);
+      const methods = store.listPaymentMethodsForUser(userId).filter((m) => m.rail === 'card');
+      res.json({
+        payment_methods: methods.map((m) => ({
+          id: m.id,
+          alias: m.alias,
+          is_default: !!m.is_default,
+          created_at: m.created_at,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/api/dev/payment-methods/:id', async (req, res, next) => {
+    try {
+      const pmId = String(req.params.id);
+      const userId = String(req.query.user_id ?? 'usr_demo').trim();
+      const store = service.getStore();
+      const pm = store.getPaymentMethodById(pmId);
+      if (!pm || pm.end_user_id !== userId || pm.rail !== 'card') {
+        throw new DomainError('NOT_FOUND', 'Payment method not found or not owned by user', 404);
+      }
+      const config = service.getConfig();
+      if (config.stripeSecretKey) {
+        try {
+          const stripe = new Stripe(config.stripeSecretKey, { apiVersion: '2025-01-27.acacia' as any });
+          await stripe.paymentMethods.detach(pm.external_token);
+        } catch {
+          /* ignore Stripe detach errors (e.g. already detached) */
+        }
+      }
+      store.deletePaymentMethod(pmId, userId);
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/api/dev/payment-methods/:id/default', (req, res, next) => {
+    try {
+      const pmId = String(req.params.id);
+      const userId = String(req.query.user_id ?? req.body?.user_id ?? 'usr_demo').trim();
+      const store = service.getStore();
+      const updated = store.setDefaultPaymentMethod(pmId, userId);
+      if (!updated) throw new DomainError('NOT_FOUND', 'Payment method not found or not owned by user', 404);
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // ─── Dev: Stripe test card setup ───────────────────────────────────
   router.post('/api/dev/stripe/setup-test-card', async (req, res, next) => {
     try {

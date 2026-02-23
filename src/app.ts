@@ -74,6 +74,24 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     res.json({ callbacks: testCallbackInbox });
   });
 
+  app.post('/api/cron/tick', async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    const provided = req.headers['authorization']?.replace(/^Bearer\s+/i, '') ?? req.headers['x-cron-secret'];
+    if (secret && provided !== secret) {
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid cron secret' });
+      return;
+    }
+    try {
+      const expired = service.expirePendingActions();
+      const executed = await service.processApprovedActions();
+      const callbacks = await service.dispatchDueWebhooks();
+      res.json({ ok: true, expired, executed, callbacks });
+    } catch (error) {
+      console.error('[cron/tick]', error);
+      res.status(500).json({ error: 'CRON_FAILED', message: 'Worker tick failed' });
+    }
+  });
+
   app.use(createWebRouter(service, webauthn, adminAuth, sandboxFaults));
   app.use(createAppRouter(service));
   app.use(createApiRouter(service, sandboxFaults));

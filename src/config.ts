@@ -13,6 +13,7 @@ export interface AppConfig {
   adminSessionSecret: string;
   adminSessionCookieName: string;
   stripeSecretKey: string | null;
+  stripePublishableKey: string | null;
 }
 
 function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
@@ -30,12 +31,13 @@ export function loadConfig(): AppConfig {
     dbPath: process.env.DB_PATH ?? defaultDbPath,
     emailFrom: process.env.EMAIL_FROM ?? 'no-reply@aegis.local',
     webhookSigningSecret: process.env.WEBHOOK_SIGNING_SECRET ?? 'dev_global_secret',
-    autoStartWorkers: boolFromEnv(process.env.AUTO_START_WORKERS, true),
+    autoStartWorkers: process.env.VERCEL ? false : boolFromEnv(process.env.AUTO_START_WORKERS, true),
     approvalExpiryMinutesDefault: Number(process.env.APPROVAL_EXPIRY_MINUTES ?? 15),
     sessionCookieName: process.env.SESSION_COOKIE_NAME ?? 'aegis_session',
     adminPassword: process.env.ADMIN_PASSWORD ?? 'aegis_admin_dev',
     adminSessionSecret: process.env.ADMIN_SESSION_SECRET ?? 'aegis_admin_session_secret_dev_only',
     adminSessionCookieName: process.env.ADMIN_SESSION_COOKIE_NAME ?? 'aegis_admin_session',
     stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? null,
+    stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
   };
 }

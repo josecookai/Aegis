@@ -1,0 +1,13 @@
+# Railway deployment config for Aegis MCP Server
+# Create a second service, set root directory to mcp-server, and add env vars:
+#   AEGIS_API_URL = <your-backend-url>
+#   AEGIS_API_KEY = aegis_demo_agent_key
+#   AEGIS_USER_ID = usr_demo
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npm run build && npm run start:http"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

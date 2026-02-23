@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.env*
+*.md
+app/
+examples/
+sdk/
+tests/
+mcp-server/

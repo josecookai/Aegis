@@ -355,6 +355,7 @@ OpenClaw: \"Payment succeeded. Subscription renewed.\"</code></pre>
           <p class="small">Card refs: <code>merchant_api:*</code> / <code>payment_link:*</code> · Crypto: <code>address:0x...</code> / <code>wallet:*</code></p>
           <div class="actions" style="margin-top:16px;">
             <a href="/dev/sandbox" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Sandbox Demos</a>
+            <a href="/dev/add-card" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">添加信用卡</a>
             <a href="/dev/webhooks" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Webhook Replay</a>
             <a href="/dev/passkeys" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Passkey Enrollment</a>
             <a href="/dev/emails" class="btn btn-secondary" style="padding:10px 16px; font-size:14px;">Email Outbox</a>
@@ -632,6 +633,7 @@ export function renderAdminPage(data: Record<string, unknown>): string {
         <div class="actions">
           <a href="/dev/webhooks">Webhook Deliveries UI</a>
           <a href="/dev/sandbox">Sandbox Fault Injection</a>
+          <a href="/dev/add-card">添加信用卡</a>
           <form method="post" action="/logout" style="display:inline">
             <button class="ghost" type="submit">Logout</button>
           </form>
@@ -989,5 +991,182 @@ export function renderSandboxFaultsPage(params: {
         <pre>${escapeHtml(JSON.stringify(params.recentCallbacks ?? [], null, 2))}</pre>
       </div>
     </div>`
+  );
+}
+
+export interface PaymentMethodDisplay {
+  id: string;
+  alias: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+export function renderAddCardPage(params: {
+  publishableKey: string | null;
+  baseUrl: string;
+  userId: string;
+  users: Array<{ id: string; email: string; display_name: string }>;
+  paymentMethods: PaymentMethodDisplay[];
+}): string {
+  const stripeConfigured = Boolean(params.publishableKey);
+  const apiBase = params.baseUrl.replace(/\/$/, '');
+
+  const addFormHtml = stripeConfigured
+    ? `
+    <div class="card">
+      <h2>添加信用卡</h2>
+      <p class="small">卡号、有效期、CVC 经 Stripe 令牌化，不经过 Aegis 服务器。测试卡：4242 4242 4242 4242</p>
+      <form id="add-card-form">
+        <div id="card-element" style="padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:#fff; margin-bottom:16px;"></div>
+        <div id="card-errors" style="color:var(--danger); font-size:14px; margin-bottom:12px;"></div>
+        <button type="submit" class="btn btn-primary" id="submit-btn">保存卡片</button>
+      </form>
+    </div>`
+    : `
+    <div class="card">
+      <h2>添加信用卡</h2>
+      <p>请配置 <code>STRIPE_SECRET_KEY</code> 和 <code>STRIPE_PUBLISHABLE_KEY</code> 环境变量以启用添加卡片功能。</p>
+      <p class="small">从 <a href="https://dashboard.stripe.com/test/apikeys" target="_blank" rel="noopener">Stripe Dashboard</a> 获取测试密钥。</p>
+    </div>`;
+
+  const cardsHtml =
+    params.paymentMethods.length > 0
+      ? `
+    <div class="card">
+      <h2>已添加的卡片</h2>
+      <table>
+        <thead><tr><th>卡片</th><th>默认</th><th>操作</th></tr></thead>
+        <tbody>
+          ${params.paymentMethods
+            .map(
+              (pm) => `
+          <tr>
+            <td>${escapeHtml(pm.alias)}</td>
+            <td>${pm.is_default ? '<span class="badge">默认</span>' : '-'}</td>
+            <td class="actions">
+              ${!pm.is_default ? `<button type="button" class="ghost set-default-btn" data-id="${escapeHtml(pm.id)}">设默认</button>` : ''}
+              <button type="button" class="danger delete-btn" data-id="${escapeHtml(pm.id)}">删除</button>
+            </td>
+          </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </div>`
+      : `
+    <div class="card">
+      <h2>已添加的卡片</h2>
+      <p class="muted">暂无卡片。使用上方表单添加。</p>
+    </div>`;
+
+  const cardHandlersScript =
+    params.paymentMethods.length > 0
+      ? `
+<script>
+(function() {
+  const apiBase = ${JSON.stringify(apiBase)};
+  const userId = ${JSON.stringify(params.userId)};
+  document.querySelectorAll('.delete-btn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      if (!confirm('确定删除此卡片？')) return;
+      const id = btn.dataset.id;
+      const res = await fetch(apiBase + '/api/dev/payment-methods/' + id + '?user_id=' + encodeURIComponent(userId), { method: 'DELETE' });
+      if (res.ok) window.location.reload();
+      else alert(((await res.json()).message) || '删除失败');
+    });
+  });
+  document.querySelectorAll('.set-default-btn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      const id = btn.dataset.id;
+      const res = await fetch(apiBase + '/api/dev/payment-methods/' + id + '/default', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId })
+      });
+      if (res.ok) window.location.reload();
+      else alert(((await res.json()).message) || '设置失败');
+    });
+  });
+})();
+</script>`
+      : '';
+
+  const stripeScript = stripeConfigured
+    ? `
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+(function() {
+  const stripe = Stripe(${JSON.stringify(params.publishableKey)});
+  const elements = stripe.elements();
+  const cardElement = elements.create('card', {
+    style: { base: { fontSize: '16px', color: '#32325d' }, invalid: { color: '#fa755a' } }
+  });
+  cardElement.mount('#card-element');
+  cardElement.on('change', function(e) {
+    document.getElementById('card-errors').textContent = e.error ? e.error.message : '';
+  });
+
+  document.getElementById('add-card-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+    const { error, paymentMethod } = await stripe.createPaymentMethod({ type: 'card', card: cardElement });
+    if (error) {
+      document.getElementById('card-errors').textContent = error.message || '创建支付方式失败';
+      btn.disabled = false;
+      btn.textContent = '保存卡片';
+      return;
+    }
+    try {
+      const res = await fetch('${apiBase}/api/dev/payment-methods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_method_id: paymentMethod.id, user_id: '${escapeHtml(params.userId)}' })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || '保存失败');
+      window.location.reload();
+    } catch (err) {
+      document.getElementById('card-errors').textContent = err.message || '保存失败';
+      btn.disabled = false;
+      btn.textContent = '保存卡片';
+    }
+  });
+})();
+</script>`
+    : '';
+
+  const allScripts = stripeScript + cardHandlersScript;
+
+  return layout(
+    '添加支付方式 — Aegis',
+    `
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo"><span></span>Aegis</a>
+        <div class="nav-links">
+          <a href="/admin">Demo Console</a>
+          <a href="/dev/sandbox">Sandbox</a>
+        </div>
+      </div>
+    </nav>
+    <div class="grid" style="gap:24px">
+      <div class="card">
+        <h1>添加支付方式</h1>
+        <p class="muted">使用 Stripe Elements 安全收集卡信息，卡号与 CVV 不经过 Aegis 服务器。</p>
+        <form method="get" action="/dev/add-card" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <label>用户</label>
+          <select name="user_id" onchange="this.form.submit()">
+            ${params.users.map((u) => `<option value="${escapeHtml(u.id)}" ${u.id === params.userId ? 'selected' : ''}>${escapeHtml(u.display_name || u.email)} (${escapeHtml(u.id)})</option>`).join('')}
+          </select>
+        </form>
+      </div>
+      ${addFormHtml}
+      ${cardsHtml}
+      <p><a href="/admin">← 返回 Admin</a></p>
+    </div>
+    ${allScripts}
+  `
   );
 }

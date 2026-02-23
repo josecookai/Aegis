@@ -169,3 +169,142 @@ quick_ref: |
 | 执行与回调 | Execution Engine → callback_url | Mock card/crypto → Webhook 队列 → callback_url | ✅ 流程一致（MVP 为 mock） |
 
 **结论：** MVP 与 Spec 在「请求创建 → 审批 → 执行 → 回调」主流程上一致；端点路径、状态命名、响应/回调结构存在差异，可在 Phase 1 中统一为 Spec 或同步更新 Spec。
+
+---
+
+## 6. OpenClaw / Manus 测试场景 Todo
+
+**测试目标：** OpenClaw 通过 MCP 使用 Aegis → 用户在网页添加信用卡 → OpenClaw 发起支付 Cursor 月费 → 用户审批 → 扣款成功。
+
+**文档索引：** [OpenClaw-Setup](docs/OpenClaw-Setup.md) | [Manus-Setup](docs/Manus-Setup.md) | [E2E-Verification-Checklist](docs/E2E-Verification-Checklist.md)
+
+### 6.1. 部署与公网可达（G1）
+
+| ID | Task | 说明 | 状态 |
+|----|------|------|------|
+| G1-1 | 部署 Aegis 后端到公网 | Vercel / Railway / VPS；需持久化 DB（SQLite 或迁移到 Vercel Postgres） | ⬜ |
+| G1-2 | 配置 `BASE_URL` 与 `STRIPE_SECRET_KEY` | 生产环境变量；Stripe 测试模式 key 即可 | ⬜ |
+| G1-3 | 部署 MCP HTTP Server | 与后端同域或独立子域；监听 `/mcp` 或 `:8080/mcp` | ⬜ |
+| G1-4 | 配置 MCP 的 `AEGIS_API_URL` | 指向已部署后端公网 URL | ⬜ |
+| G1-5 | 验证 OpenClaw 可访问 | `curl` 或 OpenClaw 配置 MCP endpoint 后能列出 tools | ⬜ |
+
+### 6.2. 网页添加信用卡（G2）
+
+| ID | Task | 说明 | 状态 |
+|----|------|------|------|
+| G2-1 | 新增「添加支付方式」路由 | 如 `/settings/payment-methods` 或 `/dev/add-card`（MVP 可放 dev） | ✅ `/dev/add-card` |
+| G2-2 | 集成 Stripe Elements | 前端加载 Stripe.js；CardElement 收集卡号、有效期、CVC；不落库 | ✅ |
+| G2-3 | 创建 Stripe PaymentMethod | 前端 `stripe.createPaymentMethod()`；将 `payment_method_id` 传后端 | ✅ |
+| G2-4 | 后端保存 PaymentMethod | 新建 `POST /api/app/payment-methods` 或扩展现有 dev endpoint；关联 `usr_demo` | ✅ `POST /api/dev/payment-methods` |
+| G2-5 | 绑定 Stripe Customer | 若无 Customer 则创建；`attach` PaymentMethod 到 Customer；设 default | ✅ |
+| G2-6 | 展示已添加的卡（掩码） | 列表页显示 `Visa **** 4242` 等；支持删除/设默认 | ✅ |
+
+### 6.3. 用户身份与权限（G3，可选）
+
+| ID | Task | 说明 | 状态 |
+|----|------|------|------|
+| G3-1 | 登录/注册流程 | 多人使用时需；单用户测试可继续用 `usr_demo` | ⬜ |
+| G3-2 | 添加卡页鉴权 | 需登录或 session 才能添加卡；MVP 可先用 `user_id` 参数 | ⬜ |
+
+### 6.4. 端到端测试流程（验收）
+
+| ID | Task | 说明 | 状态 |
+|----|------|------|------|
+| E2E-1 | OpenClaw 配置 MCP | 填入 MCP URL、确认 tools 可见 | ✅ 文档就绪；MCP Server 验证通过 |
+| E2E-2 | 用户在网页添加卡 | 打开添加卡页 → 填写 Stripe 测试卡 → 保存成功 | ✅ G2 已实现 |
+| E2E-3 | OpenClaw 发起支付 | `aegis_request_payment` 或 `POST /v1/request_action` | ✅ REST + MCP 验证通过 |
+| E2E-4 | 用户审批 | 打开 approval_url 或 App → 批准 → Face ID/密码 | ✅ Web + App 可演示 |
+| E2E-5 | 扣款成功 | `aegis_get_payment_status` 返回 `succeeded`；Stripe Dashboard 可见 charge | ✅ mock 通过；真实扣款需 Stripe |
+
+### 6.5. 执行顺序建议
+
+```
+G1-1 → G1-2 → G1-3 → G1-4 → G1-5   # 先打通公网
+G2-1 → G2-2 → G2-3 → G2-4 → G2-5 → G2-6   # 再实现添加卡
+E2E-1 → E2E-2 → E2E-3 → E2E-4 → E2E-5   # 最后跑通全流程
+```
+
+**依赖关系：** G2 依赖 G1（后端已部署）；E2E 依赖 G1 + G2。
+
+### 6.6. 验收结果与 Bug 列表
+
+详见 [docs/E2E-Verification-Checklist.md](docs/E2E-Verification-Checklist.md)。Peer Review（Agent A 部署、Agent B PCI）见该文档 §5。
+
+| # | 类型 | 描述 |
+|---|------|------|
+| 1 | 文档 | REST 示例需含 `idempotency_key`、`recipient_reference`（已补充） |
+| 2 | API | `idempotency_key` 建议统一为 Header |
+| 3 | Dev | `POST /api/dev/actions/:id/decision` 需 admin 登录 |
+| 4 | MCP | `recipient_reference` 可扩展为可选参数 |
+
+---
+
+## 7. Demo Stage Checklist — 何时算「可用」
+
+**目标流程：** OpenClaw 学会 Aegis Skill → 用户网页登录并提交信用卡 → OpenClaw 通过 Aegis 完成「支付 Cursor 月费」的扣款。
+
+> **说明：** 「OpenClaw 在 Cursor 付费网站填写信用卡」有两种理解：  
+> - **方式 A（Aegis 流程）**：用户卡存于 Aegis → OpenClaw 发起支付请求 → 用户审批 → Aegis 用 Stripe 扣款，收款方显示为「Cursor」。资金经 Aegis 的 Stripe 账户，Cursor 需另行对接才能收到款项。  
+> - **方式 B（浏览器自动填写）**：OpenClaw 获取卡号并填入 Cursor 官网表单。需把卡号暴露给 Agent，存在 PCI 与安全风险，Aegis 当前不采用此方式。
+
+本 Checklist 针对 **方式 A**。
+
+### 7.1. 可用状态定义
+
+**Demo 可用** = 以下 3 个阶段全部通过。
+
+---
+
+### 7.2. 阶段一：OpenClaw 能学会并使用 Skill
+
+| # | 验收项 | 通过标准 | 状态 |
+|---|--------|----------|------|
+| D1-1 | OpenClaw 可发现 Aegis 工具 | 配置 MCP 后，OpenClaw 能列出 `aegis_request_payment`、`aegis_get_payment_status`、`aegis_cancel_payment`、`aegis_list_capabilities` | ⬜ |
+| D1-2 | OpenClaw 能理解 Skill 用法 | 给 OpenClaw 提供 SKILL.md 或说明后，能正确调用 `aegis_request_payment` 并传入 amount、recipient、description | ⬜ |
+| D1-3 | OpenClaw 能轮询状态 | 调用 `aegis_get_payment_status` 获取 action 状态，并能识别 `succeeded`、`denied`、`expired` | ⬜ |
+
+---
+
+### 7.3. 阶段二：用户网页登录并提交信用卡
+
+| # | 验收项 | 通过标准 | 状态 |
+|---|--------|----------|------|
+| D2-1 | 用户可访问添加卡页面 | 打开 `/dev/add-card` 或 `/settings/payment-methods`，页面正常加载 | ⬜ |
+| D2-2 | 用户可输入卡信息 | Stripe Elements 表单可输入卡号、有效期、CVC、持卡人；无报错 | ⬜ |
+| D2-3 | 提交后卡被保存 | 点击保存后，后端返回成功；`aegis_list_capabilities` 能查到该卡（掩码展示） | ⬜ |
+| D2-4 | 卡信息不落库 | 卡号、CVV 仅经 Stripe 令牌化，Aegis 数据库无明文存储 | ⬜ |
+| D2-5 | 登录/身份（可选） | 单用户 demo 可用 `usr_demo`；多人需有登录并绑定 user_id | ⬜ |
+
+---
+
+### 7.4. 阶段三：OpenClaw 完成「支付 Cursor」扣款
+
+| # | 验收项 | 通过标准 | 状态 |
+|---|--------|----------|------|
+| D3-1 | OpenClaw 发起支付请求 | 调用 `aegis_request_payment(amount: "20", recipient_name: "Cursor", description: "Cursor Pro 月费")` 成功，返回 action_id | ⬜ |
+| D3-2 | 用户收到审批入口 | 通过 approval_url、邮件或 App 进入审批页，能看到金额、收款方、描述 | ⬜ |
+| D3-3 | 用户批准后扣款成功 | 用户点击批准 → `aegis_get_payment_status` 返回 `succeeded`；Stripe Dashboard 有对应 charge | ⬜ |
+| D3-4 | 扣款使用用户已添加的卡 | 扣款来自用户在阶段二添加的 PaymentMethod，非硬编码测试卡 | ⬜ |
+
+---
+
+### 7.5. 综合判定
+
+| 条件 | 结果 |
+|------|------|
+| D1-1～D1-3 全过 | OpenClaw 已学会并可使用 Skill |
+| D2-1～D2-5 全过 | 用户可在网页登录并提交信用卡 |
+| D3-1～D3-4 全过 | OpenClaw 可通过 Aegis 完成「支付 Cursor」扣款 |
+| **上述 12 项全部通过** | **Demo 可用** |
+
+---
+
+### 7.6. 与 Cursor 官网的关系
+
+当前流程中，Aegis 负责：用户审批 → 用 Stripe 扣款 → 资金进入 Aegis 的 Stripe 账户。  
+**Cursor 官网不会自动收到这笔钱**；若要让 Cursor 实际到账，需要：
+
+- Cursor 提供支付/账单 API 供 Aegis 调用，或  
+- 用户手动在 Cursor 官网用同一张卡支付。
+
+Demo 阶段的目标是：**验证 OpenClaw → Aegis → 用户审批 → Stripe 扣款** 全流程可跑通。

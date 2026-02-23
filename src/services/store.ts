@@ -167,10 +167,35 @@ export class AegisStore {
 
   insertPaymentMethod(userId: string, rail: string, alias: string, externalToken: string, metadataJson: string): string {
     const id = `pm_${randomId('pm').slice(-12)}`;
+    this.db.prepare('UPDATE payment_methods SET is_default = 0 WHERE end_user_id = ? AND rail = ?').run(userId, rail);
     this.db.prepare(
       'INSERT INTO payment_methods (id, end_user_id, rail, alias, external_token, metadata_json, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)'
     ).run(id, userId, rail, alias, externalToken, metadataJson, nowIso());
     return id;
+  }
+
+  getPaymentMethodById(pmId: string): PaymentMethodRecord | null {
+    const row = this.db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(pmId) as PaymentMethodRecord | undefined;
+    return row ?? null;
+  }
+
+  deletePaymentMethod(pmId: string, userId: string): boolean {
+    const row = this.db.prepare('SELECT id FROM payment_methods WHERE id = ? AND end_user_id = ?').get(pmId, userId) as { id: string } | undefined;
+    if (!row) return false;
+    this.db.prepare('DELETE FROM payment_methods WHERE id = ?').run(pmId);
+    const remaining = this.db.prepare('SELECT id FROM payment_methods WHERE end_user_id = ? AND rail = ? ORDER BY is_default DESC, created_at ASC LIMIT 1').get(userId, 'card') as { id: string } | undefined;
+    if (remaining) {
+      this.db.prepare('UPDATE payment_methods SET is_default = 1 WHERE id = ?').run(remaining.id);
+    }
+    return true;
+  }
+
+  setDefaultPaymentMethod(pmId: string, userId: string): boolean {
+    const row = this.db.prepare('SELECT id FROM payment_methods WHERE id = ? AND end_user_id = ? AND rail = ?').get(pmId, userId, 'card') as { id: string } | undefined;
+    if (!row) return false;
+    this.db.prepare('UPDATE payment_methods SET is_default = 0 WHERE end_user_id = ? AND rail = ?').run(userId, 'card');
+    this.db.prepare('UPDATE payment_methods SET is_default = 1 WHERE id = ?').run(pmId);
+    return true;
   }
 
   getPreferredPaymentMethod(userId: string, rail: PaymentRail, preference: string): PaymentMethodRecord | null {
