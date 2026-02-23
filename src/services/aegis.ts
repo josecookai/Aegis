@@ -475,8 +475,13 @@ export class AegisService {
     }
 
     const normalized = decision === 'approve' ? 'approved' : 'denied';
-    this.store.createDecision(actionId, ctx.endUser.id, normalized, source, { via: 'dev_endpoint' });
-    const updated = this.store.transitionActionStatus({ actionId, to: normalized, reason: 'dev_forced_decision' });
+    const updated = this.store.createDecisionAndTransition({
+      actionId,
+      actorUserId: ctx.endUser.id,
+      decision: normalized,
+      source,
+      details: { via: 'dev_endpoint', reason: 'dev_forced_decision' },
+    });
     this.queueCallbackForActionStatus(updated);
     return updated;
   }

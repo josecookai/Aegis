@@ -137,7 +137,7 @@ export default function ApproveScreen() {
   }
 
   // ---------- Error / Invalid ----------
-  if (error || !data?.valid) {
+  if (error || !data?.valid || !data?.action) {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorTitle}>无法加载</Text>
@@ -155,7 +155,7 @@ export default function ApproveScreen() {
   }
 
   // ---------- Approval Detail ----------
-  const action = data.action!;
+  const action = data.action;
   const { amount, currency, recipient_name, description } = action.details;
   const alreadyDecided = data.already_decided || data.decision != null;
 

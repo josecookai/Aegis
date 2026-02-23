@@ -21,12 +21,17 @@ quick_ref: |
 
 # Aegis MVP Prototype
 
+**GitHub:** [https://github.com/josecookai/Aegis](https://github.com/josecookai/Aegis)
+
+---
+
 ## 0. TL;DR
 
 **Aegis** 是一个 AI Agent 消费授权协议，让 AI 代理可以安全地代表用户发起支付请求，而无需暴露用户的信用卡或私钥。本仓库包含一个可运行的 MVP 原型：
 
 - **Agent-facing API**：`POST /v1/request_action` 提交支付请求
 - **Web 审批页面**：通过邮件 magic link 进行审批（开发环境捕获在 outbox）
+- **移动端 App（Expo）**：待审批列表、审批详情（Face ID/Touch ID）、历史记录、Deep Link
 - **动作状态机**：完整的请求生命周期管理（created → pending → approved/denied → executed/failed）
 - **模拟支付通道**：card 和 crypto 两个 mock 执行通道
 - **Webhook 队列**：HMAC 签名、重试调度
@@ -34,6 +39,19 @@ quick_ref: |
 - **OpenAPI YAML**：API 规范
 
 **快速开始：** `npm install && npm run dev`，然后访问 `http://localhost:3000`
+
+---
+
+## 0.1. 当前进展（2026-02-23）
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| Phase 0 规格 | ✅ 100% | 移动端 UX、API、App Flow 规格完成 |
+| Phase 1 后端 | ✅ 100% | request_action、邮件触达、Web 审批、mock 执行、Webhook、审计 |
+| Phase 2 移动端 | 🔧 50% | **审批闭环可演示**：审批详情 + Deep Link + 生物识别 ✅；待审批列表 + 首页 ✅；历史列表 + 分页 ✅；推送（FCM/APNs）待后续 |
+| Phase 3 集成 | ✅ 33% | SDK/文档 ✅；真实支付网关/链上待做 |
+
+**审批闭环 Demo 流程：** Agent 创建请求 → 首页展示 pending 卡片 → 点击进入审批 → Face ID 批准 → 返回首页消失 → 历史 Tab 看到已批准记录。详见 [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md)。
 
 ---
 
@@ -165,7 +183,17 @@ curl -s http://localhost:3000/v1/request_action \
 npx tsx examples/agent-demo.ts
 ```
 
-### 4.5. 运行测试
+### 4.5. 启动移动端 App（可选）
+
+```bash
+cd app
+npm install
+npx expo start --ios
+```
+
+App 支持：首页待审批列表、审批详情（token 或 action_id 入口）、Face ID/Touch ID、历史记录分页。完整 E2E 演示见 [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md)。
+
+### 4.6. 运行测试
 
 ```bash
 npm test
@@ -195,12 +223,16 @@ npm test
 ├── Aegis-API-Spec.md                 # API 规格
 ├── Aegis-App-Flow-Spec.md            # 流程规格
 ├── Aegis-Mobile-UX-Spec.md           # UX 规格
-├── Aegis-Implementation-Todos.md     # 实施清单
+├── Aegis-Implementation-Todos.md   # 实施清单
+├── Aegis-E2E-Demo-Script.md          # E2E 演示脚本
 ├── Aegis-Glossary.md                 # 术语表
-├── src/                               # 源代码
+├── src/                               # 后端源代码
 │   ├── services/                     # 服务层
-│   ├── db.ts                          # 数据库
+│   ├── routes/                       # API 路由（Agent + App）
 │   └── ...
+├── app/                               # 移动端 App（Expo）
+│   ├── app/                          # 页面与路由
+│   └── lib/                          # API 客户端
 ├── examples/                          # 示例代码
 │   └── agent-demo.ts                  # Agent 示例
 └── openapi.yaml                       # OpenAPI 规范
@@ -224,10 +256,27 @@ npm test
 - **术语表**：[Aegis-Glossary.md](Aegis-Glossary.md) - 统一术语定义
 - **实施指南**：[Aegis-Implementation-Todos.md](Aegis-Implementation-Todos.md) - Phase 0～3 任务清单
 - **流程详解**：[Aegis-App-Flow-Spec.md](Aegis-App-Flow-Spec.md) - 端到端流程与状态机
+- **GitHub 仓库**：[https://github.com/josecookai/Aegis](https://github.com/josecookai/Aegis)
 
 ---
 
-## 9. 原始内容（保留）
+## 9. Roadmap / 后续规划
+
+| 阶段 | 优先级 | 内容 | 依赖 |
+|------|--------|------|------|
+| **P2-2d 推送** | 高 | FCM/APNs 集成，设备注册 API（`POST/GET/DELETE /api/app/devices`） | 设备 token 存储 |
+| **P2-1 安全芯片** | 高 | Secure Enclave/StrongBox 凭证存储与签名（F-01） | 移动端架构 |
+| **P2-3 资产管理** | 中 | 钱包/信用卡添加与管理，PCI 金库对接（F-02） | 支付网关选型 |
+| **P3-1 真实支付** | 高 | 集成 Stripe/Adyen 与链上执行（F-05） | P2-1、P2-3 |
+| **P3-2 合规** | 中 | PCI 与安全审计检查项 | 生产部署前 |
+| **用户鉴权** | 高 | App 侧 pending/history 端点补 session/JWT 鉴权 | 登录流程 |
+| **历史详情页** | 低 | 点击历史条目进入只读详情（tx_hash、payment_id 等） | — |
+
+**完整任务清单见：** [Aegis-Implementation-Todos.md](Aegis-Implementation-Todos.md)
+
+---
+
+## 10. 原始内容（保留）
 
 This repo now includes a runnable MVP prototype for the Aegis plan:
 - Agent-facing API (`/v1/request_action`, `/v1/actions/:id`, `/cancel`, capabilities, webhook test)
