@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { randomToken } from '../lib/crypto';
 import { DomainError, AegisService } from '../services/aegis';
 import { AdminAuthService } from '../services/adminAuth';
-import { SandboxFaultService, FaultScope } from '../services/sandboxFaults';
+import { SandboxFaultService, FaultScope, SandboxPresetName } from '../services/sandboxFaults';
 import { WebAuthnService } from '../services/webauthn';
 import { renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage } from '../views';
 import { DecisionSource } from '../types';
@@ -185,6 +185,18 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
         throw new DomainError('INVALID_RAIL', 'Invalid rail', 400);
       }
       res.redirect(`/dev/sandbox?message=${encodeURIComponent(`Set ${rail}:${mode} (${scope})`)}`);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/dev/sandbox/preset', (req, res, next) => {
+    try {
+      const preset = String(req.body?.preset ?? '') as SandboxPresetName;
+      const allowed: SandboxPresetName[] = ['PSP_DECLINE_DEMO', 'CHAIN_REVERT_DEMO', 'TIMEOUT_DEMO'];
+      if (!allowed.includes(preset)) throw new DomainError('INVALID_PRESET', 'Invalid preset', 400);
+      sandboxFaults.applyPreset(preset);
+      res.redirect(`/dev/sandbox?message=${encodeURIComponent(`Applied preset ${preset}`)}`);
     } catch (error) {
       next(error);
     }

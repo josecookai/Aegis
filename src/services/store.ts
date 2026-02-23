@@ -728,6 +728,9 @@ export class AegisStore {
 
   toActionApiResponse(action: ActionRecord): ActionApiResponse {
     const execution = this.getExecutionByActionId(action.id);
+    const executionRaw = execution ? safeJsonParse<Record<string, unknown>>(execution.result_json, {}) : null;
+    const sandboxInjectedFault =
+      executionRaw && typeof executionRaw.sandbox_injected_fault === 'string' ? executionRaw.sandbox_injected_fault : null;
     return {
       action_id: action.id,
       status: action.status,
@@ -755,6 +758,7 @@ export class AegisStore {
             payment_id: execution.payment_id,
             error_code: execution.error_code,
             error_message: execution.error_message,
+            sandbox_injected_fault: sandboxInjectedFault,
           }
         : null,
     };

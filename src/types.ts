@@ -126,15 +126,16 @@ export interface ActionApiResponse {
   expires_at: string;
   metadata: Record<string, unknown>;
   audit_count?: number;
-  execution?: {
-    rail: PaymentRail;
-    status: string;
-    provider_reference?: string | null;
-    tx_hash?: string | null;
-    payment_id?: string | null;
-    error_code?: string | null;
-    error_message?: string | null;
-  } | null;
+    execution?: {
+      rail: PaymentRail;
+      status: string;
+      provider_reference?: string | null;
+      tx_hash?: string | null;
+      payment_id?: string | null;
+      error_code?: string | null;
+      error_message?: string | null;
+      sandbox_injected_fault?: string | null;
+    } | null;
 }
 
 export interface ActionContext {

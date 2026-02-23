@@ -295,7 +295,16 @@ export function renderAdminPage(data: Record<string, unknown>): string {
         <td>${escapeHtml(String(details.amount ?? ''))} ${escapeHtml(String(details.currency ?? ''))}</td>
         <td>${escapeHtml(String(details.recipient_name ?? ''))}</td>
         <td>${escapeHtml(String(details.payment_rail ?? ''))}</td>
-        <td><a href="/api/dev/actions/${encodeURIComponent(String(a.action_id))}/audit">audit</a></td>
+        <td>
+          <a href="/api/dev/actions/${encodeURIComponent(String(a.action_id))}/audit">audit</a>
+          ${
+            (a.execution as Record<string, unknown> | null)?.sandbox_injected_fault
+              ? `<div class="small" style="color:#b42318">sandbox-injected: ${escapeHtml(
+                  String((a.execution as Record<string, unknown>).sandbox_injected_fault)
+                )}</div>`
+              : ''
+          }
+        </td>
       </tr>`;
     })
     .join('');
@@ -588,6 +597,7 @@ export function renderSandboxFaultsPage(params: {
           <h2>Card Rail</h2>
           <p>Current: <span class="status">${escapeHtml(String(card.mode ?? 'none'))}</span> scope=${escapeHtml(String(card.scope ?? 'once'))} remaining=${escapeHtml(String(card.remaining ?? 0))}</p>
           <div class="actions">
+            <form method="post" action="/dev/sandbox/preset"><input type="hidden" name="preset" value="PSP_DECLINE_DEMO"/><button class="primary" type="submit">Preset: PSP_DECLINE_DEMO</button></form>
             <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="card"/><input type="hidden" name="mode" value="decline"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Card Decline</button></form>
             <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="card"/><input type="hidden" name="mode" value="timeout"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Card Timeout</button></form>
             <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="card"/><input type="hidden" name="mode" value="decline"/><input type="hidden" name="scope" value="sticky"/><button class="ghost" type="submit">Sticky Card Decline</button></form>
@@ -598,6 +608,8 @@ export function renderSandboxFaultsPage(params: {
           <h2>Crypto Rail</h2>
           <p>Current: <span class="status">${escapeHtml(String(crypto.mode ?? 'none'))}</span> scope=${escapeHtml(String(crypto.scope ?? 'once'))} remaining=${escapeHtml(String(crypto.remaining ?? 0))}</p>
           <div class="actions">
+            <form method="post" action="/dev/sandbox/preset"><input type="hidden" name="preset" value="CHAIN_REVERT_DEMO"/><button class="primary" type="submit">Preset: CHAIN_REVERT_DEMO</button></form>
+            <form method="post" action="/dev/sandbox/preset"><input type="hidden" name="preset" value="TIMEOUT_DEMO"/><button class="primary" type="submit">Preset: TIMEOUT_DEMO</button></form>
             <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="crypto"/><input type="hidden" name="mode" value="revert"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Crypto Revert</button></form>
             <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="crypto"/><input type="hidden" name="mode" value="timeout"/><input type="hidden" name="scope" value="once"/><button class="ghost" type="submit">Next Crypto Timeout</button></form>
             <form method="post" action="/dev/sandbox/set"><input type="hidden" name="rail" value="crypto"/><input type="hidden" name="mode" value="revert"/><input type="hidden" name="scope" value="sticky"/><button class="ghost" type="submit">Sticky Crypto Revert</button></form>

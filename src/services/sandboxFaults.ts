@@ -3,6 +3,7 @@ import { PaymentRail } from '../types';
 export type CardFaultMode = 'none' | 'decline' | 'timeout';
 export type CryptoFaultMode = 'none' | 'revert' | 'timeout';
 export type FaultScope = 'once' | 'sticky';
+export type SandboxPresetName = 'PSP_DECLINE_DEMO' | 'CHAIN_REVERT_DEMO' | 'TIMEOUT_DEMO';
 
 interface FaultRule<TMode extends string> {
   mode: TMode;
@@ -39,6 +40,24 @@ export class SandboxFaultService {
   resetAll(): SandboxFaultSnapshot {
     this.state.card = this.buildRule('none', 'once');
     this.state.crypto = this.buildRule('none', 'once');
+    return this.getSnapshot();
+  }
+
+  applyPreset(preset: SandboxPresetName): SandboxFaultSnapshot {
+    switch (preset) {
+      case 'PSP_DECLINE_DEMO':
+        this.state.card = this.buildRule('decline', 'once');
+        break;
+      case 'CHAIN_REVERT_DEMO':
+        this.state.crypto = this.buildRule('revert', 'once');
+        break;
+      case 'TIMEOUT_DEMO':
+        this.state.card = this.buildRule('timeout', 'once');
+        this.state.crypto = this.buildRule('timeout', 'once');
+        break;
+      default:
+        return this.getSnapshot();
+    }
     return this.getSnapshot();
   }
 

@@ -314,6 +314,37 @@ describe('Aegis MVP prototype', () => {
     await api.post('/dev/sandbox/reset').set('Cookie', [adminCookie]).type('form').send({}).expect(302);
   });
 
+  it('supports sandbox presets and shows sandbox-injected marker on admin actions list', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    await api
+      .post('/api/dev/sandbox/presets')
+      .set('Cookie', [adminCookie])
+      .send({ preset: 'PSP_DECLINE_DEMO' })
+      .expect(200);
+
+    const actionId = await createAndApproveCardAction(api, adminCookie, baseUrl, 't_sandbox_preset_decline_1');
+    await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
+
+    const final = await api.get(`/v1/actions/${actionId}`).set('x-aegis-api-key', 'aegis_demo_agent_key').expect(200);
+    expect(final.body.action.status).toBe('failed');
+    expect(final.body.action.execution?.error_code).toBe('PSP_DECLINED');
+    expect(final.body.action.execution?.sandbox_injected_fault).toBe('card_decline');
+
+    const adminPage = await api.get('/admin').set('Cookie', [adminCookie]).expect(200);
+    expect(adminPage.text).toContain('sandbox-injected: card_decline');
+
+    await api
+      .post('/dev/sandbox/preset')
+      .set('Cookie', [adminCookie])
+      .type('form')
+      .send({ preset: 'CHAIN_REVERT_DEMO' })
+      .expect(302);
+    const snapshot = await api.get('/api/dev/sandbox/faults').set('Cookie', [adminCookie]).expect(200);
+    expect(snapshot.body.sandbox_faults?.crypto?.mode).toBe('revert');
+  });
+
   it('app approval API: GET approval by token and POST decision with app_biometric', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);
