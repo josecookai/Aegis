@@ -84,7 +84,9 @@ export class AegisService {
       throw new DomainError('UNLINKED_END_USER', 'Agent is not linked to the specified end user', 403);
     }
 
-    this.validateCallbackUrl(input.callback_url);
+    if (input.callback_url) {
+      this.validateCallbackUrl(input.callback_url);
+    }
     this.validatePaymentDetails(input.details.payment_rail, input.details.currency, input.details.recipient_reference);
 
     const paymentMethod = this.store.getPreferredPaymentMethod(
@@ -504,6 +506,7 @@ export class AegisService {
   private queueCallbackForActionStatus(action: ActionRecord): { id: string; event_id: string } | null {
     const eventType = mapStatusToWebhookEvent(action.status);
     if (!eventType) return null;
+    if (!action.callback_url) return null;
     const payload = this.store.buildWebhookPayload(action.id, eventType);
     const queued = this.store.queueWebhookDelivery(action.agent_id, action.id, eventType, action.callback_url, payload);
     return { id: queued.id, event_id: queued.event_id };

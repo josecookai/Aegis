@@ -82,7 +82,7 @@ function migrate(db: Database.Database): void {
       payment_rail TEXT NOT NULL,
       payment_method_preference TEXT NOT NULL,
       recipient_reference TEXT NOT NULL,
-      callback_url TEXT NOT NULL,
+      callback_url TEXT,
       expires_at TEXT NOT NULL,
       metadata_json TEXT NOT NULL DEFAULT '{}',
       approved_at TEXT,

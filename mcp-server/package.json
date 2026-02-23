@@ -1,0 +1,28 @@
+{
+  "name": "aegis-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Aegis Payment Protocol — lets AI agents request, track, and cancel payments",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "aegis-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:http": "node dist/http-server.js",
+    "dev": "tsx src/index.ts",
+    "dev:http": "tsx src/http-server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^5.2.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

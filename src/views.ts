@@ -11,43 +11,72 @@ function layout(title: string, body: string): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Aegis — Human authorization layer for the agent economy. Let AI agents buy for you. Only when you approve." />
 <title>${escapeHtml(title)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
 :root {
-  --bg: #f6f4ec;
-  --fg: #162018;
-  --muted: #5a655c;
+  --bg: #fafbfc;
+  --fg: #0f172a;
+  --muted: #64748b;
   --card: #ffffff;
-  --line: #d9d4c4;
-  --accent: #0f766e;
+  --line: #e2e8f0;
+  --accent: #0052ff;
+  --accent-hover: #0046e0;
+  --accent-muted: #eef4ff;
   --danger: #b42318;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow: 0 1px 3px rgba(0,0,0,.06);
+  --shadow-lg: 0 4px 24px rgba(0,82,255,.08);
 }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; color: var(--fg); background: radial-gradient(circle at 20% -10%, #d5f1e4 0, rgba(213,241,228,0) 45%), radial-gradient(circle at 90% 10%, #f2e8cf 0, rgba(242,232,207,0) 35%), var(--bg); }
-main { max-width: 980px; margin: 40px auto; padding: 0 16px; }
-.card { background: color-mix(in srgb, var(--card) 95%, #f6f4ec); border: 1px solid var(--line); border-radius: 18px; padding: 20px; box-shadow: 0 6px 24px rgba(0,0,0,.04); }
-.grid { display: grid; gap: 16px; }
-.grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-h1, h2, h3 { margin: 0 0 12px; }
+body { margin: 0; font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: var(--fg); background: var(--bg); line-height: 1.6; }
+main { max-width: 1100px; margin: 0 auto; padding: 0 24px 80px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow); }
+.grid { display: grid; gap: 20px; }
+.grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+h1, h2, h3 { margin: 0 0 12px; font-weight: 600; letter-spacing: -0.02em; }
+h1 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.15; }
+h2 { font-size: 1.35rem; }
+h3 { font-size: 1.1rem; }
 p { margin: 8px 0; color: var(--muted); }
+a { color: var(--accent); text-decoration: none; transition: color .15s; }
+a:hover { color: var(--accent-hover); }
 label { display: block; margin-bottom: 8px; font-weight: 600; }
 input, select, textarea, button { font: inherit; }
-input, select, textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: white; }
-button { border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+input, select, textarea { width: 100%; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: white; }
+button { border: 0; border-radius: var(--radius); padding: 10px 14px; cursor: pointer; transition: opacity .15s, transform .1s; }
+button:hover { opacity: .9; }
+button:active { transform: scale(.98); }
 button.primary { background: var(--accent); color: white; }
 button.danger { background: #fff2f0; color: var(--danger); border: 1px solid #f3c8c2; }
-button.ghost { background: #eef5f3; color: #0f3f3b; }
-code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-pre { background: #f8faf7; border: 1px solid var(--line); border-radius: 12px; padding: 12px; overflow: auto; }
+button.ghost { background: var(--accent-muted); color: var(--accent); }
+code, pre { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; }
+pre { background: #f8fafc; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; overflow: auto; line-height: 1.5; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
-.status { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: #fff; }
+th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px 8px; vertical-align: top; }
+.status { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid var(--line); background: #fff; }
 .status.approved,.status.succeeded { background: #ecfdf3; border-color: #abefc6; color: #067647; }
 .status.awaiting_approval { background: #fffaeb; border-color: #fec84b; color: #b54708; }
 .status.denied,.status.failed,.status.expired,.status.canceled { background: #fef3f2; border-color: #fecdca; color: #b42318; }
-.small { font-size: 12px; color: var(--muted); }
-.actions { display: flex; gap: 12px; flex-wrap: wrap; }
-.badge { display: inline-flex; align-items: center; gap: 4px; background: #edf7f5; color: #115e59; border-radius: 999px; padding: 4px 8px; font-size: 12px; border: 1px solid #b8e3dd; }
+.small { font-size: 13px; color: var(--muted); }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.badge { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-muted); color: #1d4ed8; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 500; border: 1px solid #bfdbfe; }
+.btn { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; border-radius: var(--radius); font-weight: 600; font-size: 15px; transition: all .15s; }
+.btn-primary { background: var(--accent); color: #fff; border: none; }
+.btn-primary:hover { background: var(--accent-hover); color: #fff; box-shadow: var(--shadow-lg); }
+.btn-secondary { background: var(--accent-muted); color: var(--accent); border: 1px solid #bfdbfe; }
+.btn-secondary:hover { background: #e0edff; color: var(--accent-hover); }
+.nav { position: sticky; top: 0; z-index: 50; background: rgba(255,255,255,.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); padding: 12px 24px; margin: 0 -24px 32px; }
+.nav-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--fg); }
+.nav-logo span { width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #5fa3ff); }
+.nav-links { display: flex; gap: 8px; align-items: center; }
+.nav-links a { padding: 8px 14px; border-radius: var(--radius); font-size: 14px; font-weight: 500; color: var(--muted); }
+.nav-links a:hover { color: var(--accent); background: var(--accent-muted); }
 </style>
 </head>
 <body>
@@ -58,67 +87,63 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6p
 
 export function renderHomePage(): string {
   return layout(
-    'Aegis',
+    'Aegis — AI Agent Consumption Authorization',
     `
-    <div class="grid" style="gap:20px">
-      <section class="card" style="padding:0; overflow:hidden; border-color:#cfd7ea;">
-        <div style="padding:12px 18px; border-bottom:1px solid #e4e9f4; background:linear-gradient(180deg,#ffffff,#f8fbff); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0052ff,#5fa3ff);"></div>
-            <strong style="font-size:15px;">Aegis</strong>
-            <span class="small">AI Agent Consumption Authorization Protocol</span>
-          </div>
-          <div class="actions">
-            <a href="/docs/openapi.yaml">API Docs</a>
-            <a href="/admin">Demo Console</a>
-          </div>
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo">
+          <span></span>
+          Aegis
+        </a>
+        <div class="nav-links">
+          <a href="/docs/openapi.yaml">API Docs</a>
+          <a href="/admin">Demo Console</a>
+          <a href="https://github.com/josecookai/Aegis" target="_blank" rel="noopener">GitHub</a>
         </div>
-        <div style="padding:32px 24px; background:
-          radial-gradient(800px 300px at 15% 0%, rgba(0,82,255,.14), transparent 70%),
-          radial-gradient(700px 260px at 95% 20%, rgba(63,131,255,.10), transparent 60%),
-          linear-gradient(180deg,#fbfdff 0%,#f5f8ff 100%);">
-          <div class="grid cols-2" style="align-items:start;">
+      </div>
+    </nav>
+
+    <div class="grid" style="gap:32px">
+      <section class="card" style="padding:0; overflow:hidden; border-color:#c7d7fe; background:linear-gradient(180deg,#f8fbff 0%,#fff 60%);">
+        <div style="padding:48px 32px 56px; background:
+          radial-gradient(900px 400px at 10% -5%, rgba(0,82,255,.08), transparent 55%),
+          radial-gradient(600px 300px at 95% 10%, rgba(95,163,255,.06), transparent 50%);">
+          <div class="grid cols-2" style="align-items:center; gap:40px;">
             <div>
-              <div class="badge" style="background:#edf3ff;color:#1d4ed8;border-color:#bfdbfe;">Coinbase-style fintech clarity · Trust-first for agents</div>
-              <h1 style="font-size:clamp(34px,5vw,56px); line-height:1.02; margin:14px 0 14px; letter-spacing:-0.02em;">
+              <div class="badge" style="margin-bottom:16px;">Trust-first for agents · Coinbase-style clarity</div>
+              <h1 style="margin:0 0 16px;">
                 Let AI agents buy for you.
-                <span style="color:#0052ff;">Only when you approve.</span>
+                <span style="color:var(--accent);">Only when you approve.</span>
               </h1>
-              <p style="font-size:17px; line-height:1.5; max-width:56ch;">
+              <p style="font-size:17px; line-height:1.6; max-width:52ch; margin:0 0 24px 0;">
                 Aegis is the human authorization layer for the agent economy. Agents request a payment through one API.
                 You approve or deny in real time. Raw credentials stay out of the agent stack.
               </p>
-              <div class="actions" style="margin-top:16px;">
-                <a href="/admin" style="background:#0052ff;color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;">Try Interactive Demo</a>
-                <a href="/docs/openapi.yaml" style="background:#eef4ff;color:#0f3a8a;padding:10px 14px;border-radius:10px;text-decoration:none;">OpenAPI Spec</a>
+              <div class="actions" style="margin-bottom:28px;">
+                <a href="/admin" class="btn btn-primary">Try Interactive Demo</a>
+                <a href="/docs/openapi.yaml" class="btn btn-secondary">OpenAPI Spec</a>
               </div>
-              <div class="grid cols-2" style="margin-top:18px;">
-                <div class="card" style="padding:12px; background:#fff; border-color:#e4e9f4;">
-                  <div class="small">MVP rails</div>
-                  <strong>Card + Crypto</strong>
+              <div class="grid cols-2" style="gap:12px;">
+                <div class="card" style="padding:14px; background:#fff; border-color:#e2e8f0;">
+                  <div class="small" style="margin-bottom:4px;">MVP rails</div>
+                  <strong style="font-size:15px;">Card + Crypto</strong>
                 </div>
-                <div class="card" style="padding:12px; background:#fff; border-color:#e4e9f4;">
-                  <div class="small">Approval model</div>
-                  <strong>Web + Passkey</strong>
+                <div class="card" style="padding:14px; background:#fff; border-color:#e2e8f0;">
+                  <div class="small" style="margin-bottom:4px;">Approval model</div>
+                  <strong style="font-size:15px;">Web + Passkey</strong>
                 </div>
               </div>
             </div>
-            <div>
-              <div class="card" style="border-color:#dbe5fb; background:linear-gradient(180deg,#ffffff,#f8fbff);">
-                <h3 style="margin-bottom:8px;">Live request flow</h3>
-                <table>
-                  <tr><th>1</th><td>Agent calls <code>POST /v1/request_action</code></td></tr>
-                  <tr><th>2</th><td>Aegis sends approval link / app prompt</td></tr>
-                  <tr><th>3</th><td>User approves via Web / Passkey / App biometric</td></tr>
-                  <tr><th>4</th><td>Aegis executes on selected payment rail</td></tr>
-                  <tr><th>5</th><td>Signed webhook callback returns terminal status</td></tr>
-                </table>
-                <div class="small" style="margin-top:10px;">Built for agent developers first. Designed to become a consumer-grade trust product.</div>
-              </div>
-              <div class="card" style="margin-top:14px; border-color:#dbe5fb; background:#fff;">
-                <h3 style="margin-bottom:8px;">Design style (benchmark: Coinbase landing)</h3>
-                <p style="margin:0;">Aegis uses a clean, high-trust fintech visual language: bright whites, disciplined blue accents, generous spacing, structured cards, and low-noise information hierarchy. The goal is to communicate security and clarity before speed.</p>
-              </div>
+            <div class="card" style="border-color:#c7d7fe; background:linear-gradient(180deg,#fff,#f8fbff);">
+              <h3 style="margin-bottom:12px;">Live request flow</h3>
+              <table>
+                <tr><th style="width:28px;">1</th><td>Agent calls <code>POST /v1/request_action</code></td></tr>
+                <tr><th>2</th><td>Aegis sends approval link / app prompt</td></tr>
+                <tr><th>3</th><td>User approves via Web / Passkey / App biometric</td></tr>
+                <tr><th>4</th><td>Aegis executes on selected payment rail</td></tr>
+                <tr><th>5</th><td>Signed webhook callback returns terminal status</td></tr>
+              </table>
+              <p class="small" style="margin:12px 0 0;">Built for agent developers first. Designed to become a consumer-grade trust product.</p>
             </div>
           </div>
         </div>
@@ -301,26 +326,8 @@ OpenClaw: \"Payment succeeded. Subscription renewed.\"</code></pre>
       </section>
 
       <section class="card">
-        <h2>Integration Philosophy</h2>
-        <p>From your UI/UX report: the landing page should feel less like a static brochure and more like a developer playground. This section is the first step: concrete, copy-pasteable integration paths for the agents developers are actually using.</p>
-        <div class="grid cols-2">
-          <div>
-            <h3>What developers need first</h3>
-            <ul style="margin:0; padding-left:18px; color:var(--muted);">
-              <li>One concrete integration path</li>
-              <li>A minimal code example</li>
-              <li>A clear approval/runtime behavior model</li>
-            </ul>
-          </div>
-          <div>
-            <h3>What Aegis should show upfront</h3>
-            <ul style="margin:0; padding-left:18px; color:var(--muted);">
-              <li>How an agent waits for human authorization</li>
-              <li>How policies and limits work</li>
-              <li>How callbacks resume agent execution</li>
-            </ul>
-          </div>
-        </div>
+        <h2>Developer-first integration</h2>
+        <p>Copy-paste examples above. One API surface. Clear approval flow. Your agent waits for human auth, then resumes on webhook callback.</p>
       </section>
 
       <section class="grid cols-2">

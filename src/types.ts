@@ -60,7 +60,7 @@ export interface RequestActionInput {
   end_user_id: string;
   action_type: 'payment';
   details: ActionDetailsInput;
-  callback_url: string;
+  callback_url?: string;
   expires_at?: string;
   metadata?: Record<string, unknown>;
 }

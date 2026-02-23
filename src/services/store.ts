@@ -225,7 +225,7 @@ export class AegisStore {
           opts.input.details.payment_rail,
           opts.input.details.payment_method_preference,
           opts.input.details.recipient_reference,
-          opts.input.callback_url,
+          opts.input.callback_url ?? null,
           expiresAt,
           JSON.stringify(opts.input.metadata ?? {}),
           null,

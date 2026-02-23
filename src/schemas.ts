@@ -13,7 +13,7 @@ export const requestActionSchema = z.object({
     payment_method_preference: z.string().min(1).max(128),
     recipient_reference: z.string().min(1).max(500),
   }),
-  callback_url: z.string().url(),
+  callback_url: z.string().url().optional(),
   expires_at: z.string().datetime().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
