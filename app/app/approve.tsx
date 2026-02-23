@@ -101,7 +101,7 @@ export default function ApproveScreen() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await doSubmit('deny');
+      await doSubmit('deny', 'web_magic_link');
       setResultState('denied');
     } catch (e) {
       setSubmitError((e as Error).message);

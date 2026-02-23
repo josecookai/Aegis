@@ -245,6 +245,7 @@ export class AegisService {
     if (action.end_user_id !== userId) return { valid: false, reason: 'User mismatch' };
     const endUser = this.store.getEndUserById(action.end_user_id);
     if (!endUser) return { valid: false, reason: 'User not found' };
+    if (endUser.status !== 'active') return { valid: false, reason: 'User inactive' };
     const decision = this.store.getDecisionByActionId(action.id);
     const terminal = TERMINAL_STATUSES.has(action.status);
     return {

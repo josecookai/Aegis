@@ -31,6 +31,13 @@ function requireValidUser(service: AegisService) {
   };
 }
 
+function assertActiveUserForActionIdBranch(service: AegisService, userId: string): void {
+  const endUser = service.getStore().getEndUserById(userId);
+  if (!endUser || endUser.status !== 'active') {
+    throw new DomainError('INVALID_USER', 'Unknown or inactive user', 403);
+  }
+}
+
 /**
  * App-facing approval API (mobile). Uses magic link token in query/body instead of Agent API Key.
  * Deep link: aegis://approve?token=<magic_link_token>
@@ -80,6 +87,7 @@ export function createAppRouter(service: AegisService): Router {
       if (token) {
         view = service.getApprovalView(token);
       } else if (actionId && userId) {
+        assertActiveUserForActionIdBranch(service, userId);
         view = service.getApprovalViewByActionId(actionId, userId);
       } else {
         throw new DomainError('MISSING_PARAMS', 'Provide token OR action_id+user_id', 400);
@@ -132,6 +140,7 @@ export function createAppRouter(service: AegisService): Router {
       if (token) {
         action = service.submitApprovalDecision(token, decision as 'approve' | 'deny', sourceRaw as DecisionSource);
       } else {
+        assertActiveUserForActionIdBranch(service, userId);
         action = service.submitDecisionByActionId(actionId, userId, decision as 'approve' | 'deny', sourceRaw as DecisionSource);
       }
 
