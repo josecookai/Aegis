@@ -12,6 +12,7 @@ export interface AppConfig {
   adminPassword: string;
   adminSessionSecret: string;
   adminSessionCookieName: string;
+  stripeSecretKey: string | null;
 }
 
 function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
@@ -21,10 +22,12 @@ function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
 
 export function loadConfig(): AppConfig {
   const cwd = process.cwd();
+  const runningOnVercel = Boolean(process.env.VERCEL);
+  const defaultDbPath = runningOnVercel ? '/tmp/aegis.db' : path.join(cwd, 'data', 'aegis.db');
   return {
     port: Number(process.env.PORT ?? 3000),
     baseUrl: process.env.BASE_URL ?? 'http://localhost:3000',
-    dbPath: process.env.DB_PATH ?? path.join(cwd, 'data', 'aegis.db'),
+    dbPath: process.env.DB_PATH ?? defaultDbPath,
     emailFrom: process.env.EMAIL_FROM ?? 'no-reply@aegis.local',
     webhookSigningSecret: process.env.WEBHOOK_SIGNING_SECRET ?? 'dev_global_secret',
     autoStartWorkers: boolFromEnv(process.env.AUTO_START_WORKERS, true),
@@ -33,5 +36,6 @@ export function loadConfig(): AppConfig {
     adminPassword: process.env.ADMIN_PASSWORD ?? 'aegis_admin_dev',
     adminSessionSecret: process.env.ADMIN_SESSION_SECRET ?? 'aegis_admin_session_secret_dev_only',
     adminSessionCookieName: process.env.ADMIN_SESSION_COOKIE_NAME ?? 'aegis_admin_session',
+    stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? null,
   };
 }

@@ -14,7 +14,11 @@ export function createDb(dbPath: string): DbContext {
   }
 
   const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
+  try {
+    db.pragma('journal_mode = WAL');
+  } catch {
+    // Some serverless/runtime filesystems do not support WAL; continue with default mode.
+  }
   db.pragma('foreign_keys = ON');
 
   migrate(db);
@@ -215,6 +219,19 @@ function migrate(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
     CREATE INDEX IF NOT EXISTS idx_webauthn_challenges_user_purpose ON webauthn_challenges(user_id, purpose, created_at);
+
+    CREATE TABLE IF NOT EXISTS devices (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK(platform IN ('ios', 'android')),
+      push_token TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES end_users(id),
+      UNIQUE(user_id, platform)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
   `);
 }
 
