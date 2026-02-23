@@ -2,10 +2,10 @@
   "name": "holdis-",
   "version": "1.0.0",
   "description": "Aegis MVP prototype: AI agent spending authorization layer",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
