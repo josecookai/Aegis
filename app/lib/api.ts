@@ -9,15 +9,8 @@ import { pickApiErrorMessage } from './apiError';
 export const DEFAULT_USER_ID = 'usr_demo';
 
 const BACKEND_PORT = '3000';
+const REQUEST_TIMEOUT_MS = 15_000;
 
-/**
- * Auto-detect the backend URL so both simulators and real devices work
- * without manual configuration:
- *   - EXPO_PUBLIC_API_URL env var overrides everything
- *   - In dev, extracts the host machine IP from Expo's dev server hostUri
- *   - Android emulator uses the special 10.0.2.2 alias for host
- *   - Falls back to localhost (works on iOS simulator)
- */
 function resolveApiBase(): string {
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
 
@@ -27,7 +20,8 @@ function resolveApiBase(): string {
       (Constants as any).manifest?.debuggerHost ??
       (Constants as any).manifest2?.extra?.expoGo?.debuggerHost;
     if (hostUri) {
-      const ip = hostUri.split(':')[0];
+      const colonIdx = hostUri.lastIndexOf(':');
+      const ip = colonIdx > 0 ? hostUri.substring(0, colonIdx) : hostUri;
       return `http://${ip}:${BACKEND_PORT}`;
     }
     if (Platform.OS === 'android') return `http://10.0.2.2:${BACKEND_PORT}`;
@@ -39,22 +33,40 @@ function resolveApiBase(): string {
 
 export const API_BASE = resolveApiBase();
 
-async function parseResponseJson<T = unknown>(res: Response, fallbackMessage: string): Promise<T> {
-  let data: any;
+async function fetchWithTimeout(
+  input: string,
+  init?: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    data = await res.json();
-  } catch {
-    if (!res.ok) {
-      throw new Error(`${fallbackMessage} (HTTP ${res.status})`);
-    }
-    throw new Error(`${fallbackMessage}: invalid JSON response`);
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') throw new Error('请求超时，请检查网络连接');
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+async function parseResponseJson<T = unknown>(res: Response, fallbackMessage: string): Promise<T> {
+  const text = await res.text();
   if (!res.ok) {
-    const err = new Error(pickApiErrorMessage(data, `${fallbackMessage} (HTTP ${res.status})`)) as Error & { body?: unknown };
+    let data: any;
+    try { data = JSON.parse(text); } catch { /* non-JSON error body */ }
+    const err = new Error(
+      pickApiErrorMessage(data, `${fallbackMessage} (HTTP ${res.status})`)
+    ) as Error & { body?: unknown };
     err.body = data;
     throw err;
   }
-  return data as T;
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`${fallbackMessage}: invalid JSON response`);
+  }
 }
 
 export interface ApprovalAction {
@@ -97,14 +109,14 @@ export interface HistoryResponse {
 }
 
 export async function getApproval(token: string): Promise<ApprovalResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${API_BASE}/api/app/approval?token=${encodeURIComponent(token)}`
   );
   return parseResponseJson<ApprovalResponse>(res, 'Failed to load approval');
 }
 
 export async function getApprovalByActionId(actionId: string, userId = DEFAULT_USER_ID): Promise<ApprovalResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${API_BASE}/api/app/approval?action_id=${encodeURIComponent(actionId)}&user_id=${encodeURIComponent(userId)}`
   );
   return parseResponseJson<ApprovalResponse>(res, 'Failed to load approval');
@@ -115,7 +127,7 @@ export async function submitDecision(
   decision: 'approve' | 'deny',
   decisionSource: 'app_biometric' | 'web_magic_link' = 'app_biometric'
 ): Promise<{ ok: boolean; action_id: string; request_id: string; status: string }> {
-  const res = await fetch(`${API_BASE}/api/app/approval/decision`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/app/approval/decision`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -133,7 +145,7 @@ export async function submitDecisionByActionId(
   userId = DEFAULT_USER_ID,
   decisionSource: 'app_biometric' | 'web_magic_link' = 'app_biometric'
 ): Promise<{ ok: boolean; action_id: string; request_id: string; status: string }> {
-  const res = await fetch(`${API_BASE}/api/app/approval/decision`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/app/approval/decision`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -147,7 +159,7 @@ export async function submitDecisionByActionId(
 }
 
 export async function getPending(userId = DEFAULT_USER_ID): Promise<PendingResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${API_BASE}/api/app/pending?user_id=${encodeURIComponent(userId)}`
   );
   return parseResponseJson<PendingResponse>(res, '获取待审批列表失败');
@@ -158,7 +170,7 @@ export async function getHistory(
   limit = 50,
   offset = 0
 ): Promise<HistoryResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${API_BASE}/api/app/history?user_id=${encodeURIComponent(userId)}&limit=${limit}&offset=${offset}`
   );
   return parseResponseJson<HistoryResponse>(res, '获取历史记录失败');

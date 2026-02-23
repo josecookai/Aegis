@@ -4,13 +4,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── Colors ──────────────────────────────────────────────
-GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[aegis]${NC} $*"; }
 ok()    { echo -e "${GREEN}[aegis]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[aegis]${NC} $*"; }
+fail()  { echo -e "${RED}[aegis]${NC} $*"; }
 
-# ── Detect LAN IP ──────────────────────────────────────
-LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+# ── Detect LAN IP (multi-interface fallback) ───────────
+LAN_IP=$(
+  ipconfig getifaddr en0 2>/dev/null ||
+  ipconfig getifaddr en1 2>/dev/null ||
+  route get default 2>/dev/null | awk '/interface:/{print $2}' | xargs ipconfig getifaddr 2>/dev/null ||
+  hostname -I 2>/dev/null | awk '{print $1}' ||
+  echo "localhost"
+)
 
 # ── Pre-flight checks ──────────────────────────────────
 info "Checking prerequisites…"
@@ -31,20 +38,9 @@ if [ ! -d "$ROOT/app/node_modules" ]; then
 fi
 
 # ── Start backend ──────────────────────────────────────
-info "Starting backend on http://localhost:3000 …"
+info "Starting backend…"
 (cd "$ROOT" && npx tsx src/server.ts) &
 BACKEND_PID=$!
-
-sleep 2
-if ! kill -0 $BACKEND_PID 2>/dev/null; then
-  echo "❌ Backend failed to start"; exit 1
-fi
-
-# ── Start Expo ─────────────────────────────────────────
-info "Starting Expo dev server…"
-info "Mobile app will connect to backend at http://${LAN_IP}:3000"
-(cd "$ROOT/app" && EXPO_PUBLIC_API_URL="http://${LAN_IP}:3000" npx expo start --ios) &
-EXPO_PID=$!
 
 # ── Cleanup on exit ───────────────────────────────────
 cleanup() {
@@ -55,6 +51,34 @@ cleanup() {
   ok "Done."
 }
 trap cleanup EXIT INT TERM
+
+# ── Wait for backend to be ready (health check polling) ─
+info "Waiting for backend to be ready…"
+READY=false
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:3000/ > /dev/null 2>&1; then
+    READY=true
+    break
+  fi
+  if ! kill -0 $BACKEND_PID 2>/dev/null; then
+    fail "Backend process exited unexpectedly"
+    exit 1
+  fi
+  sleep 1
+done
+
+if [ "$READY" = false ]; then
+  fail "Backend did not become ready within 30 seconds"
+  kill $BACKEND_PID 2>/dev/null || true
+  exit 1
+fi
+ok "Backend is ready on http://localhost:3000"
+
+# ── Start Expo ─────────────────────────────────────────
+info "Starting Expo dev server…"
+info "Mobile app will connect to backend at http://${LAN_IP}:3000"
+(cd "$ROOT/app" && EXPO_PUBLIC_API_URL="http://${LAN_IP}:3000" npx expo start --ios) &
+EXPO_PID=$!
 
 # ── Print demo guide ──────────────────────────────────
 echo ""

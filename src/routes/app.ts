@@ -175,12 +175,13 @@ export function createAppRouter(service: AegisService): Router {
   router.delete('/api/app/devices/:id', requireValidUser(service), (req, res, next) => {
     try {
       const userId = (req as any).validatedUserId as string;
+      const deviceId = String(req.params.id);
       const store = service.getStore();
       const devices = store.listDevicesForUser(userId);
-      if (!devices.some(d => d.id === req.params.id)) {
+      if (!devices.some(d => d.id === deviceId)) {
         throw new DomainError('NOT_FOUND', 'Device not found or not owned by this user', 404);
       }
-      store.deleteDevice(req.params.id);
+      store.deleteDevice(deviceId);
       res.json({ ok: true });
     } catch (error) {
       next(error);

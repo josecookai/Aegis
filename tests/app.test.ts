@@ -625,11 +625,12 @@ describe('Aegis MVP prototype', () => {
     expect(regAndroid.body.device_id).toBeTruthy();
     expect(regAndroid.body.device_id).not.toBe(deviceId);
 
-    await api.delete(`/api/app/devices/${deviceId}`).expect(200);
+    await api.delete(`/api/app/devices/${deviceId}?user_id=usr_demo`).expect(200);
     const list3 = await api.get('/api/app/devices?user_id=usr_demo').expect(200);
     expect(list3.body.devices.some((d: any) => d.id === deviceId)).toBe(false);
 
-    await api.delete('/api/app/devices/nonexistent').expect(404);
+    await api.delete('/api/app/devices/nonexistent?user_id=usr_demo').expect(404);
+    await api.delete(`/api/app/devices/${regAndroid.body.device_id}?user_id=usr_nonexistent`).expect(403);
 
     await api.post('/api/app/devices').send({ user_id: 'usr_demo' }).expect(400);
     await api.post('/api/app/devices').send({ user_id: 'usr_demo', platform: 'windows', push_token: 'x' }).expect(400);

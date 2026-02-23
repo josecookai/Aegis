@@ -119,7 +119,7 @@ export default function ApproveScreen() {
         <Text style={[styles.resultTitle, { color: isApproved ? '#4ade80' : '#f87171' }]}>
           {isApproved ? '已批准，正在处理' : '已拒绝'}
         </Text>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => router.replace('/')}>
+        <TouchableOpacity style={styles.primaryBtn} onPress={() => router.replace('/')} accessibilityRole="button" accessibilityLabel="返回首页">
           <Text style={styles.primaryBtnText}>返回首页</Text>
         </TouchableOpacity>
       </View>
@@ -143,11 +143,11 @@ export default function ApproveScreen() {
         <Text style={styles.errorTitle}>无法加载</Text>
         <Text style={styles.errorText}>{error || data?.reason || '链接无效或已过期'}</Text>
         {error && (
-          <TouchableOpacity style={styles.retryBtn} onPress={loadApproval}>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadApproval} accessibilityRole="button" accessibilityLabel="重试加载">
             <Text style={styles.retryText}>重试</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace('/')}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace('/')} accessibilityRole="button" accessibilityLabel="返回首页">
           <Text style={styles.backBtnText}>返回首页</Text>
         </TouchableOpacity>
       </View>
@@ -192,6 +192,9 @@ export default function ApproveScreen() {
             style={[styles.button, styles.approveBtn, submitting && styles.buttonDisabled]}
             onPress={handleApprove}
             disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel="批准该支付请求"
+            accessibilityState={{ disabled: submitting }}
           >
             {submitting ? (
               <ActivityIndicator color="#fff" />
@@ -203,6 +206,9 @@ export default function ApproveScreen() {
             style={[styles.button, styles.denyBtn, submitting && styles.buttonDisabled]}
             onPress={handleDeny}
             disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel="拒绝该支付请求"
+            accessibilityState={{ disabled: submitting }}
           >
             <Text style={styles.buttonText}>拒绝</Text>
           </TouchableOpacity>
@@ -210,7 +216,7 @@ export default function ApproveScreen() {
       )}
 
       {alreadyDecided && (
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace('/')}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace('/')} accessibilityRole="button" accessibilityLabel="返回首页">
           <Text style={styles.backBtnText}>返回首页</Text>
         </TouchableOpacity>
       )}

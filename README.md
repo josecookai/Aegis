@@ -16,7 +16,7 @@ related_docs:
   - Aegis-Implementation-Todos.md
   - Aegis-Glossary.md
 quick_ref: |
-  Aegis MVP 原型：AI Agent 消费授权协议。提供 Agent-facing API、Web 审批页面、动作状态机、模拟支付通道（card/crypto）、Webhook 队列。快速开始：npm install && npm run dev。
+  Aegis MVP 原型：AI Agent 消费授权协议。提供 Agent-facing API、Web/移动端审批、动作状态机、模拟支付通道（card/crypto）、Webhook 队列。快速开始：npm install && npm run dev。
 ---
 
 # Aegis MVP Prototype
@@ -64,6 +64,7 @@ quick_ref: |
 | **App 流程** | Flow Spec | 端到端流程、审批状态机、子流程、异常处理 | [Aegis-App-Flow-Spec.md](Aegis-App-Flow-Spec.md) |
 | **移动端 UX** | UX Spec | 界面设计、信息架构、推送与深链、无障碍 | [Aegis-Mobile-UX-Spec.md](Aegis-Mobile-UX-Spec.md) |
 | **实施清单** | Todos | Phase 0～3 的 Todo 与 F-01～F-06 的验收 Checklist | [Aegis-Implementation-Todos.md](Aegis-Implementation-Todos.md) |
+| **E2E 演示脚本** | Demo | 9 步手动测试 + Checklist | [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md) |
 | **术语表** | Glossary | 统一术语定义，按字母和主题分类 | [Aegis-Glossary.md](Aegis-Glossary.md) |
 
 ---
@@ -203,12 +204,23 @@ npm test
 
 ## 5. API 快速参考
 
+**Agent 侧：**
+
 | 端点 | 方法 | 用途 | 文档 |
 |------|------|------|------|
 | `/v1/request_action` | POST | 提交支付请求 | [API Spec §2.1](Aegis-API-Spec.md#21-post-v1request_action) |
-| `/v1/requests/{id}` | GET | 查询请求状态 | [API Spec §2.2](Aegis-API-Spec.md#22-get-v1requestsrequest_id) |
-| `/cancel` | POST | 取消请求（如适用） | API Spec |
+| `/v1/actions/:id` | GET | 查询请求状态 | API Spec |
+| `/v1/actions/:id/cancel` | POST | 取消请求 | API Spec |
 | `/{callback_url}` | POST | Webhook 回调（Agent 提供） | [API Spec §3](Aegis-API-Spec.md#3-webhook-回调) |
+
+**App 侧（移动端）：**
+
+| 端点 | 方法 | 用途 |
+|------|------|------|
+| `/api/app/approval` | GET | 拉取审批详情（token 或 action_id+user_id） |
+| `/api/app/approval/decision` | POST | 提交批准/拒绝 |
+| `/api/app/pending` | GET | 待审批列表 |
+| `/api/app/history` | GET | 历史记录（分页） |
 
 **完整 API 文档：** [Aegis-API-Spec.md](Aegis-API-Spec.md)
 
@@ -245,8 +257,10 @@ npm test
 本 MVP 原型用于架构和流程验证，**非生产就绪**：
 
 - **Web 审批**：使用 magic link + 模拟 passkey/OTP 源标志（真实 WebAuthn/OTP 流程未实现）
+- **移动端审批**：支持 token 和 action_id 双入口、Face ID/Touch ID；推送（FCM/APNs）待实现
 - **支付执行**：card 和 crypto 通道为 **mock 提供者**，根据 `recipient_reference` / description 确定性成功/失败
 - **邮件投递**：捕获在 `email_outbox`，在 `/dev/emails` 渲染
+- **用户鉴权**：App 侧 pending/history 端点当前无 session 鉴权（MVP 用 user_id 参数）
 - **合规性**：本原型设计用于架构和流程验证，**非生产合规**
 
 ---
