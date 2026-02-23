@@ -1,0 +1,217 @@
+openapi: 3.1.0
+info:
+  title: Aegis MVP API
+  version: 0.1.0
+  description: |
+    Aegis MVP prototype API for agent-submitted payment authorization requests.
+    This build includes web approval (magic link) and mock card/crypto execution rails.
+servers:
+  - url: http://localhost:3000
+    description: Local dev
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Aegis-API-Key
+  schemas:
+    RequestAction:
+      type: object
+      required: [idempotency_key, end_user_id, action_type, details, callback_url]
+      properties:
+        idempotency_key: { type: string }
+        end_user_id: { type: string }
+        action_type: { type: string, enum: [payment] }
+        callback_url: { type: string, format: uri }
+        expires_at: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+        details:
+          type: object
+          required: [amount, currency, recipient_name, description, payment_rail, payment_method_preference, recipient_reference]
+          properties:
+            amount: { type: string, example: '149.99' }
+            currency: { type: string, example: USD }
+            recipient_name: { type: string, example: United Airlines }
+            description: { type: string, example: Flight UA-241 SFO to LAX }
+            payment_rail: { type: string, enum: [card, crypto] }
+            payment_method_preference: { type: string, example: card_default }
+            recipient_reference: { type: string, example: merchant_api:united_airlines }
+    Action:
+      type: object
+      properties:
+        action_id: { type: string }
+        status:
+          type: string
+          enum: [received, validation_failed, awaiting_approval, approved, denied, expired, executing, succeeded, failed, canceled]
+        action_type: { type: string, enum: [payment] }
+        end_user_id: { type: string }
+        callback_url: { type: string, format: uri }
+        expires_at: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+        details:
+          type: object
+          properties:
+            amount: { type: string }
+            currency: { type: string }
+            recipient_name: { type: string }
+            description: { type: string }
+            payment_rail: { type: string, enum: [card, crypto] }
+            payment_method_preference: { type: string }
+            recipient_reference: { type: string }
+        execution:
+          type: [object, 'null']
+          properties:
+            rail: { type: string, enum: [card, crypto] }
+            status: { type: string }
+            provider_reference: { type: [string, 'null'] }
+            tx_hash: { type: [string, 'null'] }
+            payment_id: { type: [string, 'null'] }
+            error_code: { type: [string, 'null'] }
+            error_message: { type: [string, 'null'] }
+    WebhookSignatureHeader:
+      type: string
+      example: t=1700000000,v1=<hex-hmac>
+security:
+  - ApiKeyAuth: []
+paths:
+  /v1/request_action:
+    post:
+      summary: Create a payment authorization request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestAction'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action:
+                    $ref: '#/components/schemas/Action'
+                  links:
+                    type: object
+                    properties:
+                      approval_url: { type: string, format: uri }
+        '400': { description: Invalid request }
+        '401': { description: Unauthorized agent }
+  /v1/actions/{actionId}:
+    get:
+      summary: Get an action by ID
+      parameters:
+        - in: path
+          name: actionId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Action details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action:
+                    $ref: '#/components/schemas/Action'
+        '404': { description: Not found }
+  /v1/actions/{actionId}/cancel:
+    post:
+      summary: Cancel an awaiting_approval action
+      parameters:
+        - in: path
+          name: actionId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Canceled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action:
+                    $ref: '#/components/schemas/Action'
+        '409': { description: Invalid state }
+  /v1/payment_methods/capabilities:
+    get:
+      summary: Get capabilities for an end user
+      parameters:
+        - in: query
+          name: end_user_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Capabilities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  end_user_id: { type: string }
+                  rails:
+                    type: array
+                    items: { type: string, enum: [card, crypto] }
+                  methods:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+  /v1/webhooks/test:
+    post:
+      summary: Queue a webhook test event (prototype)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [callback_url]
+              properties:
+                callback_url: { type: string, format: uri }
+      responses:
+        '202':
+          description: Test queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued: { type: boolean }
+                  event_id: { type: string }
+webhooks:
+  aegisActionEvent:
+    post:
+      summary: Action lifecycle event callback
+      parameters:
+        - in: header
+          name: X-Aegis-Signature
+          required: true
+          schema:
+            $ref: '#/components/schemas/WebhookSignatureHeader'
+        - in: header
+          name: X-Aegis-Event-Id
+          required: true
+          schema: { type: string }
+        - in: header
+          name: X-Aegis-Event-Type
+          required: true
+          schema:
+            type: string
+            enum: [action.approved, action.denied, action.succeeded, action.failed, action.expired, action.canceled]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '2XX': { description: Ack }
