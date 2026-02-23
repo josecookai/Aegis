@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aegis</title>
+<style>
+:root {
+  --bg: #f6f4ec;
+  --fg: #162018;
+  --muted: #5a655c;
+  --card: #ffffff;
+  --line: #d9d4c4;
+  --accent: #0f766e;
+  --danger: #b42318;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; color: var(--fg); background: radial-gradient(circle at 20% -10%, #d5f1e4 0, rgba(213,241,228,0) 45%), radial-gradient(circle at 90% 10%, #f2e8cf 0, rgba(242,232,207,0) 35%), var(--bg); }
+main { max-width: 980px; margin: 40px auto; padding: 0 16px; }
+.card { background: color-mix(in srgb, var(--card) 95%, #f6f4ec); border: 1px solid var(--line); border-radius: 18px; padding: 20px; box-shadow: 0 6px 24px rgba(0,0,0,.04); }
+.grid { display: grid; gap: 16px; }
+.grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+h1, h2, h3 { margin: 0 0 12px; }
+p { margin: 8px 0; color: var(--muted); }
+label { display: block; margin-bottom: 8px; font-weight: 600; }
+input, select, textarea, button { font: inherit; }
+input, select, textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: white; }
+button { border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+button.primary { background: var(--accent); color: white; }
+button.danger { background: #fff2f0; color: var(--danger); border: 1px solid #f3c8c2; }
+button.ghost { background: #eef5f3; color: #0f3f3b; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: #f8faf7; border: 1px solid var(--line); border-radius: 12px; padding: 12px; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
+.status { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: #fff; }
+.status.approved,.status.succeeded { background: #ecfdf3; border-color: #abefc6; color: #067647; }
+.status.awaiting_approval { background: #fffaeb; border-color: #fec84b; color: #b54708; }
+.status.denied,.status.failed,.status.expired,.status.canceled { background: #fef3f2; border-color: #fecdca; color: #b42318; }
+.small { font-size: 12px; color: var(--muted); }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.badge { display: inline-flex; align-items: center; gap: 4px; background: #edf7f5; color: #115e59; border-radius: 999px; padding: 4px 8px; font-size: 12px; border: 1px solid #b8e3dd; }
+</style>
+</head>
+<body>
+<main>
+    <div class="grid" style="gap:20px">
+      <section class="card" style="padding:0; overflow:hidden; border-color:#cfd7ea;">
+        <div style="padding:12px 18px; border-bottom:1px solid #e4e9f4; background:linear-gradient(180deg,#ffffff,#f8fbff); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0052ff,#5fa3ff);"></div>
+            <strong style="font-size:15px;">Aegis</strong>
+            <span class="small">AI Agent Consumption Authorization Protocol</span>
+          </div>
+          <div class="actions">
+            <a href="/docs/openapi.yaml">API Docs</a>
+            <a href="/admin">Demo Console</a>
+          </div>
+        </div>
+        <div style="padding:32px 24px; background:
+          radial-gradient(800px 300px at 15% 0%, rgba(0,82,255,.14), transparent 70%),
+          radial-gradient(700px 260px at 95% 20%, rgba(63,131,255,.10), transparent 60%),
+          linear-gradient(180deg,#fbfdff 0%,#f5f8ff 100%);">
+          <div class="grid cols-2" style="align-items:start;">
+            <div>
+              <div class="badge" style="background:#edf3ff;color:#1d4ed8;border-color:#bfdbfe;">Coinbase-style fintech clarity · Trust-first for agents</div>
+              <h1 style="font-size:clamp(34px,5vw,56px); line-height:1.02; margin:14px 0 14px; letter-spacing:-0.02em;">
+                Let AI agents buy for you.
+                <span style="color:#0052ff;">Only when you approve.</span>
+              </h1>
+              <p style="font-size:17px; line-height:1.5; max-width:56ch;">
+                Aegis is the human authorization layer for the agent economy. Agents request a payment through one API.
+                You approve or deny in real time. Raw credentials stay out of the agent stack.
+              </p>
+              <div class="actions" style="margin-top:16px;">
+                <a href="/admin" style="background:#0052ff;color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;">Try Interactive Demo</a>
+                <a href="/docs/openapi.yaml" style="background:#eef4ff;color:#0f3a8a;padding:10px 14px;border-radius:10px;text-decoration:none;">OpenAPI Spec</a>
+              </div>
+              <div class="grid cols-2" style="margin-top:18px;">
+                <div class="card" style="padding:12px; background:#fff; border-color:#e4e9f4;">
+                  <div class="small">MVP rails</div>
+                  <strong>Card + Crypto</strong>
+                </div>
+                <div class="card" style="padding:12px; background:#fff; border-color:#e4e9f4;">
+                  <div class="small">Approval model</div>
+                  <strong>Web + Passkey</strong>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="card" style="border-color:#dbe5fb; background:linear-gradient(180deg,#ffffff,#f8fbff);">
+                <h3 style="margin-bottom:8px;">Live request flow</h3>
+                <table>
+                  <tr><th>1</th><td>Agent calls <code>POST /v1/request_action</code></td></tr>
+                  <tr><th>2</th><td>Aegis sends approval link / app prompt</td></tr>
+                  <tr><th>3</th><td>User approves via Web / Passkey / App biometric</td></tr>
+                  <tr><th>4</th><td>Aegis executes on selected payment rail</td></tr>
+                  <tr><th>5</th><td>Signed webhook callback returns terminal status</td></tr>
+                </table>
+                <div class="small" style="margin-top:10px;">Built for agent developers first. Designed to become a consumer-grade trust product.</div>
+              </div>
+              <div class="card" style="margin-top:14px; border-color:#dbe5fb; background:#fff;">
+                <h3 style="margin-bottom:8px;">Design style (benchmark: Coinbase landing)</h3>
+                <p style="margin:0;">Aegis uses a clean, high-trust fintech visual language: bright whites, disciplined blue accents, generous spacing, structured cards, and low-noise information hierarchy. The goal is to communicate security and clarity before speed.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid cols-2">
+        <div class="card">
+          <h2>Why Aegis</h2>
+          <table>
+            <tr><th>Problem</th><td>Agents can automate buying, but users do not want to expose cards, CVVs, or private keys.</td></tr>
+            <tr><th>Aegis role</th><td>Acts as an approval and execution proxy so agents request intent, not credentials.</td></tr>
+            <tr><th>User control</th><td>Real-time approve/deny for each transaction instead of coarse budgets only.</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h2>Core value props</h2>
+          <div class="grid">
+            <div><span class="badge">Universal API</span><p>One agent-facing integration surface across card and crypto rails.</p></div>
+            <div><span class="badge">Human-in-the-loop</span><p>Structured requests with clear amount/recipient/description before execution.</p></div>
+            <div><span class="badge">Auditability</span><p>Immutable-style audit logs, webhook deliveries, and replay tooling for every action.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>How It Works (Developer + User)</h2>
+        <div class="grid cols-2">
+          <div>
+            <h3>For agent developers</h3>
+            <ol style="padding-left:18px; margin:0;">
+              <li>Register agent and get API key</li>
+              <li>Call <code>/v1/request_action</code> with declarative payment intent</li>
+              <li>Receive lifecycle webhooks: approved / denied / succeeded / failed</li>
+              <li>Use replay and sandbox tools to test edge cases quickly</li>
+            </ol>
+          </div>
+          <div>
+            <h3>For end users</h3>
+            <ol style="padding-left:18px; margin:0;">
+              <li>Connect payment methods (tokenized card / managed crypto rail)</li>
+              <li>Open approval request in web or app</li>
+              <li>Confirm using passkey or biometric flow</li>
+              <li>Track all actions in a transparent audit trail</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="integrations">
+        <h2>3-Minute Integration Guides (Agent-First)</h2>
+        <p>In 2026, developers do not want a 50-page API manual first. They want to know one thing: <strong>“How do I plug this into my agent loop?”</strong> Start here.</p>
+        <div class="card" style="border-color:#dbe5fb; background:#f8fbff; margin-bottom:14px;">
+          <div class="actions" id="integrationTabs">
+            <button class="ghost" type="button" data-tab="manus" style="background:#eaf1ff;">Manus</button>
+            <button class="ghost" type="button" data-tab="openclaw">OpenClaw</button>
+            <button class="ghost" type="button" data-tab="curl">curl</button>
+            <button class="ghost" type="button" data-tab="python">Python SDK</button>
+          </div>
+          <div class="small" style="margin-top:8px;">Copy-pasteable examples first. Full API docs second.</div>
+        </div>
+        <div class="grid cols-2">
+          <div class="card integration-panel" data-panel="manus" style="border-color:#dbe5fb; background:linear-gradient(180deg,#ffffff,#f8fbff);">
+            <div class="badge" style="background:#edf3ff;color:#1d4ed8;border-color:#bfdbfe;">For Manus Developers</div>
+            <h3>Build an “Autonomous Payment” Skill</h3>
+            <p>Manus excels at sandbox execution. Aegis gives it a safe payment gateway so it can complete a full loop from research to purchase without exposing credentials.</p>
+            <p><strong>Step 1: Register an Aegis Skill in <code>SKILL.md</code></strong></p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="manus-skill" style="float:right">Copy</button><code id="manus-skill">## Skill: Aegis Payments
+**Description**: Allow Manus to buy goods or book services through Aegis in a controlled environment.
+**Required API**: `AEGIS_API_KEY` (set in Manus Environment Variables)</code></pre>
+            <p><strong>Step 2: Add the core tool in your Manus sandbox (Python)</strong></p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="manus-python" style="float:right">Copy</button><code id="manus-python">import aegis_pay
+
+gateway = aegis_pay.Client(api_key="AEGIS_API_KEY")
+
+response = gateway.request_payment(
+    intent="Buy the hardcover edition of 'AI 2026' recommended by A16Z",
+    amount=49.9,
+    currency="USD",
+    merchant="Amazon"
+)
+
+print(response.message)  # WAITING_FOR_AUTH: Check phone / watch</code></pre>
+            <p><strong>Step 3: Manus closes the loop automatically</strong></p>
+            <p class="small">When Aegis returns a waiting state, Manus prompts the user to approve. Once approved on phone/watch, Manus resumes and finalizes the order.</p>
+          </div>
+
+          <div class="card integration-panel" data-panel="openclaw" style="border-color:#dbe5fb; background:#fff;">
+            <div class="badge" style="background:#edf7ff;color:#075985;border-color:#bae6fd;">For OpenClaw Developers</div>
+            <h3>Add a “Financial Control” Tool</h3>
+            <p>OpenClaw (ex-Moltbot) focuses on local control and multi-channel automation. Aegis lets your Telegram/Slack bot pay safely while keys remain in Aegis’ secured execution boundary.</p>
+            <p><strong>Step 1: Configure <code>~/.openclaw/tools.json</code></strong></p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="openclaw-tool" style="float:right">Copy</button><code id="openclaw-tool">{
+  "name": "aegis_secure_pay",
+  "description": "Pay via Aegis with ETH/SOL or card rails",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "asset": { "type": "string", "enum": ["USDT", "SOL", "VISA"] },
+      "amount": { "type": "number" }
+    }
+  }
+}</code></pre>
+            <p><strong>Step 2: Define policy-as-code</strong></p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="openclaw-policy" style="float:right">Copy</button><code id="openclaw-policy">Allow OpenClaw to pay up to $20/month for github.com subscriptions.
+Anything above requires approval on Apple Watch or phone.</code></pre>
+            <p><strong>Step 3: Real-time operator interaction</strong></p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="openclaw-dialog" style="float:right">Copy</button><code id="openclaw-dialog">User: "OpenClaw, renew next month's Copilot."
+OpenClaw: "Requesting $10 via Aegis. Please confirm on your watch or phone."
+User: (double-clicks watch)
+OpenClaw: "Payment succeeded. Subscription renewed."</code></pre>
+          </div>
+
+          <div class="card integration-panel" data-panel="curl" style="display:none; border-color:#dbe5fb; background:#fff;">
+            <div class="badge" style="background:#eefaf4;color:#166534;border-color:#bbf7d0;">Quickstart via curl</div>
+            <h3>Request a Payment in 1 Call</h3>
+            <p>Use this in any agent framework before building a custom SDK wrapper.</p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="curl-request" style="float:right">Copy</button><code id="curl-request">curl -s https://api.aegis.com/v1/request_action \
+  -H 'Content-Type: application/json' \
+  -H 'X-Aegis-API-Key: $AEGIS_API_KEY' \
+  -d '{
+    "idempotency_key": "agent-run-001",
+    "end_user_id": "usr_demo",
+    "action_type": "payment",
+    "callback_url": "https://agent.example.com/aegis/callback",
+    "details": {
+      "amount": "49.90",
+      "currency": "USD",
+      "recipient_name": "Amazon",
+      "description": "AI 2026 hardcover",
+      "payment_rail": "card",
+      "payment_method_preference": "card_default",
+      "recipient_reference": "merchant_api:amazon"
+    }
+  }'</code></pre>
+            <p class="small">Your agent should treat the returned approval URL / callback lifecycle as the continuation point in the workflow.</p>
+          </div>
+
+          <div class="card integration-panel" data-panel="python" style="display:none; border-color:#dbe5fb; background:#fff;">
+            <div class="badge" style="background:#f4f0ff;color:#6d28d9;border-color:#ddd6fe;">Python SDK Wrapper Pattern</div>
+            <h3>Wrap Aegis into Your Agent Runtime</h3>
+            <p>Minimal client abstraction for tool-calling frameworks.</p>
+            <pre class="copyable"><button type="button" class="ghost copy-btn" data-copy="python-sdk" style="float:right">Copy</button><code id="python-sdk">class AegisTool:
+    def __init__(self, api_key, base_url="https://api.aegis.com"):
+        self.api_key = api_key
+        self.base_url = base_url
+
+    def request_payment(self, payload):
+        import requests
+        r = requests.post(
+            f"{self.base_url}/v1/request_action",
+            headers={"X-Aegis-API-Key": self.api_key},
+            json=payload,
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
+
+# In your agent tool graph:
+# 1) call request_payment
+# 2) surface approval request to user
+# 3) resume on webhook callback</code></pre>
+          </div>
+        </div>
+        <script>
+          (() => {
+            const tabRoot = document.getElementById('integrationTabs');
+            if (!tabRoot) return;
+            const tabs = Array.from(tabRoot.querySelectorAll('[data-tab]'));
+            const panels = Array.from(document.querySelectorAll('.integration-panel'));
+            const setTab = (name) => {
+              tabs.forEach(btn => {
+                const active = btn.getAttribute('data-tab') === name;
+                btn.style.background = active ? '#eaf1ff' : '';
+                btn.style.borderColor = active ? '#bfdbfe' : '';
+              });
+              panels.forEach(panel => {
+                panel.style.display = panel.getAttribute('data-panel') === name ? '' : 'none';
+              });
+            };
+            tabs.forEach(btn => btn.addEventListener('click', () => setTab(btn.getAttribute('data-tab'))));
+            setTab('manus');
+
+            document.querySelectorAll('.copy-btn').forEach(btn => {
+              btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-copy');
+                const node = id ? document.getElementById(id) : null;
+                if (!node) return;
+                const text = node.textContent || '';
+                try {
+                  await navigator.clipboard.writeText(text);
+                  const old = btn.textContent;
+                  btn.textContent = 'Copied';
+                  setTimeout(() => { btn.textContent = old; }, 900);
+                } catch {}
+              });
+            });
+          })();
+        </script>
+      </section>
+
+      <section class="card">
+        <h2>Integration Philosophy</h2>
+        <p>From your UI/UX report: the landing page should feel less like a static brochure and more like a developer playground. This section is the first step: concrete, copy-pasteable integration paths for the agents developers are actually using.</p>
+        <div class="grid cols-2">
+          <div>
+            <h3>What developers need first</h3>
+            <ul style="margin:0; padding-left:18px; color:var(--muted);">
+              <li>One concrete integration path</li>
+              <li>A minimal code example</li>
+              <li>A clear approval/runtime behavior model</li>
+            </ul>
+          </div>
+          <div>
+            <h3>What Aegis should show upfront</h3>
+            <ul style="margin:0; padding-left:18px; color:var(--muted);">
+              <li>How an agent waits for human authorization</li>
+              <li>How policies and limits work</li>
+              <li>How callbacks resume agent execution</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid cols-2">
+        <div class="card">
+          <h2>Security posture (MVP)</h2>
+          <div class="grid">
+            <div><strong>Credential isolation</strong><p>Agents never touch raw credentials.</p></div>
+            <div><strong>Webhook signatures</strong><p>HMAC signed callback delivery with retry + replay tooling.</p></div>
+            <div><strong>Passkey support</strong><p>Web approval flow supports WebAuthn passkey verification.</p></div>
+            <div><strong>Admin protection</strong><p>Dev/admin tooling is protected by login session.</p></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Try the product locally</h2>
+          <p><strong>Seed demo credentials</strong></p>
+          <p><code>x-aegis-api-key: aegis_demo_agent_key</code></p>
+          <p><code>end_user_id: usr_demo</code></p>
+          <p class="small">Card refs: <code>merchant_api:*</code> / <code>payment_link:*</code><br/>Crypto refs: <code>address:0x...</code> / <code>wallet:*</code></p>
+          <div class="actions">
+            <a href="/dev/sandbox">Sandbox Demos</a>
+            <a href="/dev/webhooks">Webhook Replay UI</a>
+            <a href="/dev/passkeys">Passkey Enrollment</a>
+            <a href="/dev/emails">Email Outbox</a>
+            <a href="/healthz">Health</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="background:linear-gradient(180deg,#0052ff,#0b4fd1); color:#fff; border-color:#0b4fd1;">
+        <div class="grid cols-2" style="align-items:center;">
+          <div>
+            <h2 style="color:#fff; margin-bottom:8px;">Build the trust layer for agent commerce</h2>
+            <p style="color:rgba(255,255,255,.86);">Aegis is building the approval protocol between autonomous agents and human money. Start with the MVP console and sandbox tools, then integrate the API.</p>
+          </div>
+          <div class="actions" style="justify-content:flex-end;">
+            <a href="/admin" style="background:#fff;color:#0b4fd1;padding:10px 14px;border-radius:10px;text-decoration:none;">Open Demo Console</a>
+            <a href="/docs/openapi.yaml" style="background:rgba(255,255,255,.14);color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;border:1px solid rgba(255,255,255,.25);">View API Spec</a>
+          </div>
+        </div>
+      </section>
+    </div></main>
+</body>
+</html>
