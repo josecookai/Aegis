@@ -31,7 +31,9 @@
 
 | 变量 | 必填 | 默认 | 说明 |
 |------|------|------|------|
-| `BASE_URL` | ✅ | `http://localhost:3000` | 公网可访问的根 URL（用于 approval_url、邮件链接） |
+| `BASE_URL` | ✅ | `http://localhost:3000` | 公网可访问的根 URL（用于 approval_url、Google OAuth callback） |
+| `GOOGLE_CLIENT_ID` | ✅ | — | Google OAuth 2.0 Client ID（Beta 登录） |
+| `GOOGLE_CLIENT_SECRET` | ✅ | — | Google OAuth 2.0 Client Secret |
 | `STRIPE_SECRET_KEY` | 可选 | `null` | Stripe 测试/生产 key；不设则使用 mock 支付 |
 | `STRIPE_PUBLISHABLE_KEY` | 可选 | — | Stripe 前端 key；添加卡页若用 Stripe Elements 需配置 |
 | `CRON_SECRET` | Vercel 必填 | — | Cron 调用 `/api/cron/tick` 时的鉴权；Vercel Cron 自动注入 |
@@ -39,6 +41,8 @@
 | `ADMIN_PASSWORD` | 建议 | `aegis_admin_dev` | Admin 登录密码 |
 | `ADMIN_SESSION_SECRET` | 建议 | 开发默认 | Session 签名密钥 |
 | `AUTO_START_WORKERS` | 可选 | `true` (Railway) / `false` (Vercel) | 是否启动后台 worker；Vercel 上由 Cron 触发 |
+
+**Google OAuth 配置：** 在 [Google Cloud Console](https://console.cloud.google.com/apis/credentials) 创建 OAuth 2.0 凭据（Web 应用），添加授权重定向 URI：`{BASE_URL}/auth/google/callback`
 
 ### 2.2 MCP Server
 
@@ -73,11 +77,13 @@ npx vercel --prod
 | 变量 | 值 | 环境 |
 |------|-----|------|
 | `BASE_URL` | `https://holdis-xxx.vercel.app`（替换为实际 URL） | Production |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | Production |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | Production |
 | `CRON_SECRET` | `openssl rand -hex 32` 生成 | Production |
 | `STRIPE_SECRET_KEY` | `sk_test_...`（可选） | Production |
 | `STRIPE_PUBLISHABLE_KEY` | `pk_test_...`（可选） | Production |
 
-保存后触发 **Redeploy**。
+保存后触发 **Redeploy**。Google OAuth 重定向 URI：`{BASE_URL}/auth/google/callback`
 
 ### 3.3 MCP 部署到 Railway
 

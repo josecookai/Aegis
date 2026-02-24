@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
+import passport from 'passport';
 import { randomToken } from '../lib/crypto';
 import { DomainError, AegisService } from '../services/aegis';
+import { isProductionHttps } from '../config';
 import { AdminAuthService } from '../services/adminAuth';
 import { SandboxFaultService, FaultScope, SandboxPresetName } from '../services/sandboxFaults';
 import { WebAuthnService } from '../services/webauthn';
@@ -28,7 +30,7 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     res.cookie('aegis_admin_session', token, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false,
+      secure: isProductionHttps(service.getConfig()),
       maxAge: 12 * 60 * 60 * 1000,
     });
     res.redirect(next);
@@ -61,7 +63,7 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
       res.cookie(config.appSessionCookieName, sessionToken, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: false,
+        secure: isProductionHttps(config),
         maxAge: config.appSessionTtlMinutes * 60 * 1000,
       });
       res.redirect(req.query.redirect ? String(req.query.redirect) : '/');
@@ -77,6 +79,35 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     const config = service.getConfig();
     res.clearCookie(config.appSessionCookieName);
     res.json({ ok: true });
+  });
+
+  // Google OAuth
+  router.get('/auth/google', (req, res, next) => {
+    const config = service.getConfig();
+    if (!config.googleClientId || !config.googleClientSecret) {
+      return res.redirect('/app/login?error=google_not_configured');
+    }
+    passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+  });
+
+  router.get('/auth/google/callback', (req, res, next) => {
+    passport.authenticate('google', { session: false }, (err: Error | null, user: { userId: string } | undefined) => {
+      if (err) {
+        return res.redirect(`/app/login?error=${encodeURIComponent(err.message || 'auth_failed')}`);
+      }
+      if (!user?.userId) {
+        return res.redirect('/app/login?error=no_user');
+      }
+      const config = service.getConfig();
+      const { token } = service.getStore().createAppSession(user.userId, config.appSessionTtlMinutes);
+      res.cookie(config.appSessionCookieName, token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: isProductionHttps(config),
+        maxAge: config.appSessionTtlMinutes * 60 * 1000,
+      });
+      res.redirect('/dashboard');
+    })(req, res, next);
   });
 
   router.get('/', (_req, res) => {
@@ -148,7 +179,7 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     res.cookie('aegis_csrf', csrf, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false,
+      secure: isProductionHttps(service.getConfig()),
       maxAge: 15 * 60 * 1000,
     });
     const passkeyCount = view.endUser ? service.getStore().countPasskeysForUser(view.endUser.id) : 0;

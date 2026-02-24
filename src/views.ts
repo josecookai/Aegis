@@ -383,53 +383,22 @@ OpenClaw: \"Payment succeeded. Subscription renewed.\"</code></pre>
 }
 
 export function renderAppLoginPage(params?: { error?: string; redirect?: string; success?: boolean }): string {
-  const redirect = params?.redirect ?? '/dashboard';
   return layout(
     'Login — Aegis',
     `<div class="grid" style="max-width:420px;margin:0 auto">
       <div class="card">
         <h1>Sign in</h1>
-        <p>Enter your email to receive a Magic Link. No password needed.</p>
-        ${params?.success ? '<p style="color:#067647"><strong>Check your email for the login link.</strong></p>' : ''}
+        <p>Sign in with your Google account to get your API key.</p>
         ${params?.error ? `<p style="color:#b42318"><strong>${escapeHtml(params.error)}</strong></p>` : ''}
-        <form id="magic-link-form" class="grid">
-          <input type="hidden" name="redirect" value="${escapeHtml(redirect)}" />
-          <label>Email
-            <input type="email" name="email" autocomplete="email" required placeholder="you@example.com" />
-          </label>
-          <div class="actions">
-            <button class="primary" type="submit">Send Magic Link</button>
-            <a href="/">Back</a>
-          </div>
-        </form>
-        <p class="small" style="margin-top:16px;">In dev, check <a href="/dev/emails">Email Outbox</a> for the link.</p>
+        <div class="actions" style="margin-top:16px;">
+          <a href="/auth/google" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            Sign in with Google
+          </a>
+          <a href="/">Back</a>
+        </div>
       </div>
-    </div>
-    <script>
-      document.getElementById('magic-link-form').onsubmit = async (e) => {
-        e.preventDefault();
-        const form = e.target;
-        const btn = form.querySelector('button[type=submit]');
-        btn.disabled = true;
-        try {
-          const res = await fetch('/auth/magic-link/request', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: form.email.value })
-          });
-          const data = await res.json().catch(() => ({}));
-          if (res.ok) {
-            window.location.href = '/app/login?success=1&redirect=' + encodeURIComponent(form.redirect.value || '/dashboard');
-          } else {
-            form.closest('.card').insertAdjacentHTML('afterbegin', '<p style="color:#b42318"><strong>' + (data.message || data.error || 'Request failed') + '</strong></p>');
-            btn.disabled = false;
-          }
-        } catch (err) {
-          form.closest('.card').insertAdjacentHTML('afterbegin', '<p style="color:#b42318"><strong>Network error</strong></p>');
-          btn.disabled = false;
-        }
-      };
-    </script>`
+    </div>`
   );
 }
 
@@ -459,19 +428,37 @@ export function renderDashboardPage(): string {
         </div>
       </section>
       <section class="card">
-        <h2>Agents</h2>
+        <h2>API Keys</h2>
         <p id="agents-loading">Loading...</p>
         <div id="agents-content" style="display:none">
-          <p id="agents-empty" style="display:none" class="small">No agents yet. <a href="/settings/agents">Create one</a>.</p>
-          <p id="agents-list" style="display:none"></p>
-          <a href="/settings/agents" class="btn btn-secondary">Manage Agents</a>
+          <div id="agents-empty" style="display:none; background:var(--accent-muted); border-color:#bfdbfe; padding:20px;" class="card">
+            <p style="margin:0 0 12px;"><strong>Create your first API Key</strong></p>
+            <p class="small" style="margin:0 0 16px;">Get an API key to integrate your AI agent with Aegis.</p>
+            <a href="/settings/agents" class="btn btn-primary">Create API Key</a>
+          </div>
+          <div id="agents-list-wrap" style="display:none">
+            <p id="agents-list"></p>
+            <a href="/settings/agents" class="btn btn-secondary" style="margin-top:12px;">Manage Agents</a>
+          </div>
+        </div>
+      </section>
+      <section class="card" id="payment-card">
+        <h2>Payment Methods</h2>
+        <p id="pm-loading">Loading...</p>
+        <div id="pm-content" style="display:none">
+          <p id="pm-empty" style="display:none" class="small">Add a card to enable payments.</p>
+          <div id="pm-list-wrap" style="display:none">
+            <p id="pm-list"></p>
+            <a href="/settings/payment-methods" class="btn btn-secondary" style="margin-top:12px;">Manage Cards</a>
+          </div>
         </div>
       </section>
       <section class="card">
         <h2>Quick links</h2>
         <div class="actions">
-          <a href="/settings/agents" class="btn btn-primary">API Keys</a>
+          <a href="/settings/agents" class="btn btn-primary">Create API Key</a>
           <a href="/settings/payment-methods" class="btn btn-secondary">Payment Methods</a>
+          <a href="/docs/openapi.yaml" class="btn btn-secondary">API Docs</a>
         </div>
       </section>
     </div>
@@ -495,8 +482,23 @@ export function renderDashboardPage(): string {
         if (agents.length === 0) {
           document.getElementById('agents-empty').style.display = 'block';
         } else {
-          document.getElementById('agents-list').style.display = 'block';
+          document.getElementById('agents-list-wrap').style.display = 'block';
           document.getElementById('agents-list').innerHTML = agents.slice(0, 5).map(a => '<span class="badge" style="margin-right:8px">' + escapeHtml(a.name) + '</span>').join('') + (agents.length > 5 ? ' <span class="small">+' + (agents.length - 5) + ' more</span>' : '');
+        }
+
+        const pmRes = await fetch('/api/app/payment-methods', { credentials: 'same-origin' });
+        document.getElementById('pm-loading').style.display = 'none';
+        document.getElementById('pm-content').style.display = 'block';
+        if (pmRes.status !== 401) {
+          const pmData = await pmRes.json();
+          const methods = pmData.payment_methods || [];
+          if (methods.length === 0) {
+            document.getElementById('pm-empty').style.display = 'block';
+            document.getElementById('pm-empty').innerHTML = 'Add a card to enable payments. <a href="/settings/payment-methods">Add card</a>';
+          } else {
+            document.getElementById('pm-list-wrap').style.display = 'block';
+            document.getElementById('pm-list').innerHTML = methods.map(m => '<span class="badge" style="margin-right:8px">' + escapeHtml(m.alias) + '</span>').join('');
+          }
         }
       })();
       document.getElementById('logout-link').onclick = async (e) => {
@@ -528,12 +530,13 @@ export function renderAgentsPage(): string {
     <div class="grid" style="gap:24px">
       <section class="card">
         <h2>Create Agent</h2>
+        <p class="small" style="margin-bottom:16px;">Create an Agent to get an API key. <a href="/docs/openapi.yaml">View API docs</a></p>
         <form id="create-agent-form" class="grid">
           <label>Name <input type="text" name="name" placeholder="My Agent" value="My Agent" /></label>
           <div class="actions"><button class="primary" type="submit">Create</button></div>
         </form>
         <div id="api-key-reveal" style="display:none; margin-top:16px; background:#fffaeb; border-color:#fec84b;" class="card">
-          <p><strong>API Key (save now — shown once):</strong></p>
+          <p><strong>API Key — save now, it won't be shown again:</strong></p>
           <code id="api-key-value" style="word-break:break-all; display:block; padding:12px; background:#fff; border-radius:8px;"></code>
           <button type="button" id="copy-api-key" class="btn btn-secondary" style="margin-top:8px">Copy</button>
         </div>
@@ -622,8 +625,10 @@ export function renderPaymentMethodsPage(params: { publishableKey: string | null
     ? `
     <div class="card">
       <h2>Add card</h2>
-      <p class="small">Card details are tokenized by Stripe and never touch Aegis servers. Test card: 4242 4242 4242 4242</p>
+      <p class="small">Card details are tokenized by Stripe and never touch Aegis servers.</p>
+      <p class="small" style="margin-bottom:12px;"><strong>Test card:</strong> 4242 4242 4242 4242 (any future expiry, any CVC)</p>
       <form id="add-card-form">
+        <label style="margin-bottom:12px;">Cardholder name <input type="text" name="name" placeholder="John Doe" id="cardholder-name" /></label>
         <div id="card-element" style="padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:#fff; margin-bottom:16px;"></div>
         <div id="card-errors" style="color:var(--danger); font-size:14px; margin-bottom:12px;"></div>
         <button type="submit" class="btn btn-primary" id="submit-btn">Save card</button>
@@ -717,7 +722,13 @@ export function renderPaymentMethodsPage(params: { publishableKey: string | null
           const btn = document.getElementById('submit-btn');
           btn.disabled = true;
           btn.textContent = 'Processing…';
-          const { error, paymentMethod } = await stripe.createPaymentMethod({ type: 'card', card: cardElement });
+          const nameEl = document.getElementById('cardholder-name');
+          const name = nameEl && nameEl.value ? String(nameEl.value).trim() : '';
+          const { error, paymentMethod } = await stripe.createPaymentMethod({
+            type: 'card',
+            card: cardElement,
+            billing_details: name ? { name } : undefined
+          });
           if (error) {
             document.getElementById('card-errors').textContent = error.message || 'Failed';
             btn.disabled = false;

@@ -16,11 +16,17 @@ export interface AppConfig {
   appSessionTtlMinutes: number;
   stripeSecretKey: string | null;
   stripePublishableKey: string | null;
+  googleClientId: string | null;
+  googleClientSecret: string | null;
 }
 
 function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
   if (value == null) return fallback;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+export function isProductionHttps(config: Pick<AppConfig, 'baseUrl'>): boolean {
+  return config.baseUrl.startsWith('https');
 }
 
 export function loadConfig(): AppConfig {
@@ -43,5 +49,7 @@ export function loadConfig(): AppConfig {
     appSessionTtlMinutes: Number(process.env.APP_SESSION_TTL_MINUTES ?? 10080), // 7 days
     stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? null,
     stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+    googleClientId: process.env.GOOGLE_CLIENT_ID ?? null,
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? null,
   };
 }

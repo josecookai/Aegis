@@ -1,6 +1,8 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { loadConfig, AppConfig } from './config';
+import passport from 'passport';
+import { loadConfig, AppConfig, isProductionHttps } from './config';
+import { configureGoogleStrategy } from './auth/google';
 import { createDb } from './db';
 import { AegisStore } from './services/store';
 import { NotificationService } from './services/notifications';
@@ -44,6 +46,8 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser());
+  app.use(passport.initialize());
+  configureGoogleStrategy(store, config);
 
   app.use((req, res, next) => {
     if (!adminAuth.isEnabled()) return next();
@@ -85,6 +89,7 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     res.cookie(config.appSessionCookieName, token, {
       httpOnly: true,
       sameSite: 'lax',
+      secure: isProductionHttps(config),
       maxAge: config.appSessionTtlMinutes * 60 * 1000,
     });
     res.json({ ok: true, user_id: userId });
