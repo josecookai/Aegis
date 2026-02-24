@@ -103,6 +103,8 @@ export function renderHomePage(): string {
           Aegis
         </a>
         <div class="nav-links">
+          <a href="/app/login">Login</a>
+          <a href="/dashboard">Dashboard</a>
           <a href="/docs/openapi.yaml">API Docs</a>
           <a href="/admin">Demo Console</a>
           <a href="https://github.com/josecookai/Aegis" target="_blank" rel="noopener">GitHub</a>
@@ -377,6 +379,372 @@ OpenClaw: \"Payment succeeded. Subscription renewed.\"</code></pre>
         </div>
       </section>
     </div>`
+  );
+}
+
+export function renderAppLoginPage(params?: { error?: string; redirect?: string; success?: boolean }): string {
+  const redirect = params?.redirect ?? '/dashboard';
+  return layout(
+    'Login — Aegis',
+    `<div class="grid" style="max-width:420px;margin:0 auto">
+      <div class="card">
+        <h1>Sign in</h1>
+        <p>Enter your email to receive a Magic Link. No password needed.</p>
+        ${params?.success ? '<p style="color:#067647"><strong>Check your email for the login link.</strong></p>' : ''}
+        ${params?.error ? `<p style="color:#b42318"><strong>${escapeHtml(params.error)}</strong></p>` : ''}
+        <form id="magic-link-form" class="grid">
+          <input type="hidden" name="redirect" value="${escapeHtml(redirect)}" />
+          <label>Email
+            <input type="email" name="email" autocomplete="email" required placeholder="you@example.com" />
+          </label>
+          <div class="actions">
+            <button class="primary" type="submit">Send Magic Link</button>
+            <a href="/">Back</a>
+          </div>
+        </form>
+        <p class="small" style="margin-top:16px;">In dev, check <a href="/dev/emails">Email Outbox</a> for the link.</p>
+      </div>
+    </div>
+    <script>
+      document.getElementById('magic-link-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const btn = form.querySelector('button[type=submit]');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/auth/magic-link/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: form.email.value })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            window.location.href = '/app/login?success=1&redirect=' + encodeURIComponent(form.redirect.value || '/dashboard');
+          } else {
+            form.closest('.card').insertAdjacentHTML('afterbegin', '<p style="color:#b42318"><strong>' + (data.message || data.error || 'Request failed') + '</strong></p>');
+            btn.disabled = false;
+          }
+        } catch (err) {
+          form.closest('.card').insertAdjacentHTML('afterbegin', '<p style="color:#b42318"><strong>Network error</strong></p>');
+          btn.disabled = false;
+        }
+      };
+    </script>`
+  );
+}
+
+export function renderDashboardPage(): string {
+  return layout(
+    'Dashboard — Aegis',
+    `
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo"><span></span> Aegis</a>
+        <div class="nav-links">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings/agents">Agents</a>
+          <a href="/settings/payment-methods">Payment Methods</a>
+          <a href="/docs/openapi.yaml">API Docs</a>
+          <a href="#" id="logout-link">Logout</a>
+        </div>
+      </div>
+    </nav>
+    <div class="grid" style="gap:24px">
+      <section class="card" id="user-card">
+        <h2>Account</h2>
+        <p id="user-loading">Loading...</p>
+        <div id="user-content" style="display:none">
+          <p><strong id="user-email"></strong><br><span class="small" id="user-display"></span></p>
+          <p><strong>Plan:</strong> <span id="plan-name">—</span></p>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Agents</h2>
+        <p id="agents-loading">Loading...</p>
+        <div id="agents-content" style="display:none">
+          <p id="agents-empty" style="display:none" class="small">No agents yet. <a href="/settings/agents">Create one</a>.</p>
+          <p id="agents-list" style="display:none"></p>
+          <a href="/settings/agents" class="btn btn-secondary">Manage Agents</a>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Quick links</h2>
+        <div class="actions">
+          <a href="/settings/agents" class="btn btn-primary">API Keys</a>
+          <a href="/settings/payment-methods" class="btn btn-secondary">Payment Methods</a>
+        </div>
+      </section>
+    </div>
+    <script>
+      (async () => {
+        const meRes = await fetch('/api/app/me', { credentials: 'same-origin' });
+        if (meRes.status === 401) { window.location.href = '/app/login?redirect=/dashboard'; return; }
+        const me = await meRes.json();
+        document.getElementById('user-loading').style.display = 'none';
+        document.getElementById('user-content').style.display = 'block';
+        document.getElementById('user-email').textContent = me.user?.email || '—';
+        document.getElementById('user-display').textContent = me.user?.display_name || '';
+        document.getElementById('plan-name').textContent = me.plan?.name || 'Free';
+
+        const agentsRes = await fetch('/api/app/agents', { credentials: 'same-origin' });
+        if (agentsRes.status === 401) { window.location.href = '/app/login?redirect=/dashboard'; return; }
+        const agentsData = await agentsRes.json();
+        document.getElementById('agents-loading').style.display = 'none';
+        document.getElementById('agents-content').style.display = 'block';
+        const agents = agentsData.agents || [];
+        if (agents.length === 0) {
+          document.getElementById('agents-empty').style.display = 'block';
+        } else {
+          document.getElementById('agents-list').style.display = 'block';
+          document.getElementById('agents-list').innerHTML = agents.slice(0, 5).map(a => '<span class="badge" style="margin-right:8px">' + escapeHtml(a.name) + '</span>').join('') + (agents.length > 5 ? ' <span class="small">+' + (agents.length - 5) + ' more</span>' : '');
+        }
+      })();
+      document.getElementById('logout-link').onclick = async (e) => {
+        e.preventDefault();
+        await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        window.location.href = '/';
+      };
+      function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c] || c)); }
+    </script>`
+  );
+}
+
+export function renderAgentsPage(): string {
+  return layout(
+    'API Keys — Aegis',
+    `
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo"><span></span> Aegis</a>
+        <div class="nav-links">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings/agents">Agents</a>
+          <a href="/settings/payment-methods">Payment Methods</a>
+          <a href="/docs/openapi.yaml">API Docs</a>
+          <a href="#" id="logout-link">Logout</a>
+        </div>
+      </div>
+    </nav>
+    <div class="grid" style="gap:24px">
+      <section class="card">
+        <h2>Create Agent</h2>
+        <form id="create-agent-form" class="grid">
+          <label>Name <input type="text" name="name" placeholder="My Agent" value="My Agent" /></label>
+          <div class="actions"><button class="primary" type="submit">Create</button></div>
+        </form>
+        <div id="api-key-reveal" style="display:none; margin-top:16px; background:#fffaeb; border-color:#fec84b;" class="card">
+          <p><strong>API Key (save now — shown once):</strong></p>
+          <code id="api-key-value" style="word-break:break-all; display:block; padding:12px; background:#fff; border-radius:8px;"></code>
+          <button type="button" id="copy-api-key" class="btn btn-secondary" style="margin-top:8px">Copy</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Your Agents</h2>
+        <p id="agents-loading">Loading...</p>
+        <table id="agents-table" style="display:none">
+          <thead><tr><th>Name</th><th>Status</th><th>Created</th><th></th></tr></thead>
+          <tbody id="agents-tbody"></tbody>
+        </table>
+        <p id="agents-empty" style="display:none" class="small">No agents yet. Create one above.</p>
+      </section>
+    </div>
+    <script>
+      async function loadAgents() {
+        const res = await fetch('/api/app/agents', { credentials: 'same-origin' });
+        if (res.status === 401) { window.location.href = '/app/login?redirect=' + encodeURIComponent('/settings/agents'); return; }
+        const data = await res.json();
+        const agents = data.agents || [];
+        document.getElementById('agents-loading').style.display = 'none';
+        if (agents.length === 0) {
+          document.getElementById('agents-empty').style.display = 'block';
+        } else {
+          document.getElementById('agents-table').style.display = 'table';
+          const tbody = document.getElementById('agents-tbody');
+          tbody.innerHTML = agents.map(a => '<tr><td>' + escapeHtml(a.name) + '</td><td><span class="status ' + escapeHtml(a.status) + '">' + escapeHtml(a.status) + '</span></td><td>' + escapeHtml(a.created_at) + '</td><td><button type="button" class="btn danger delete-agent" data-id="' + escapeHtml(a.id) + '" data-name="' + escapeHtml(a.name) + '">Delete</button></td></tr>').join('');
+          tbody.querySelectorAll('.delete-agent').forEach(btn => {
+            btn.onclick = () => deleteAgent(btn.dataset.id, btn.dataset.name);
+          });
+        }
+      }
+      async function deleteAgent(id, name) {
+        if (!confirm('Delete agent "' + name + '"? This cannot be undone.')) return;
+        const res = await fetch('/api/app/agents/' + encodeURIComponent(id), { method: 'DELETE', credentials: 'same-origin' });
+        if (res.status === 401) { window.location.href = '/app/login?redirect=' + encodeURIComponent('/settings/agents'); return; }
+        if (res.ok) loadAgents();
+        else alert('Failed to delete');
+      }
+      document.getElementById('create-agent-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const btn = form.querySelector('button[type=submit]');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/api/app/agents', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: form.name.value || 'My Agent' }),
+            credentials: 'same-origin'
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.api_key) {
+            document.getElementById('api-key-value').textContent = data.api_key;
+            document.getElementById('api-key-reveal').style.display = 'block';
+            form.name.value = 'My Agent';
+            loadAgents();
+          } else if (res.ok) {
+            loadAgents();
+          } else {
+            alert(data.message || data.error || 'Failed');
+          }
+        } catch (err) { alert('Network error'); }
+        btn.disabled = false;
+      };
+      document.getElementById('copy-api-key').onclick = () => {
+        const el = document.getElementById('api-key-value');
+        navigator.clipboard.writeText(el.textContent).then(() => alert('Copied!')).catch(() => alert('Copy failed'));
+      };
+      document.getElementById('logout-link').onclick = async (e) => {
+        e.preventDefault();
+        await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        window.location.href = '/';
+      };
+      function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c] || c)); }
+      loadAgents();
+    </script>`
+  );
+}
+
+export function renderPaymentMethodsPage(params: { publishableKey: string | null; baseUrl: string }): string {
+  const stripeConfigured = Boolean(params.publishableKey);
+  const apiBase = params.baseUrl.replace(/\/$/, '');
+
+  const addFormHtml = stripeConfigured
+    ? `
+    <div class="card">
+      <h2>Add card</h2>
+      <p class="small">Card details are tokenized by Stripe and never touch Aegis servers. Test card: 4242 4242 4242 4242</p>
+      <form id="add-card-form">
+        <div id="card-element" style="padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:#fff; margin-bottom:16px;"></div>
+        <div id="card-errors" style="color:var(--danger); font-size:14px; margin-bottom:12px;"></div>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Save card</button>
+      </form>
+    </div>`
+    : `
+    <div class="card">
+      <h2>Add card</h2>
+      <p>Configure <code>STRIPE_SECRET_KEY</code> and <code>STRIPE_PUBLISHABLE_KEY</code> to enable adding cards.</p>
+      <p class="small">Get test keys from <a href="https://dashboard.stripe.com/test/apikeys" target="_blank" rel="noopener">Stripe Dashboard</a>.</p>
+    </div>`;
+
+  return layout(
+    'Payment Methods — Aegis',
+    `
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo"><span></span> Aegis</a>
+        <div class="nav-links">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings/agents">Agents</a>
+          <a href="/settings/payment-methods">Payment Methods</a>
+          <a href="/docs/openapi.yaml">API Docs</a>
+          <a href="#" id="logout-link">Logout</a>
+        </div>
+      </div>
+    </nav>
+    <div class="grid" style="gap:24px">
+      ${addFormHtml}
+      <div class="card">
+        <h2>Your cards</h2>
+        <p id="pm-loading">Loading...</p>
+        <div id="pm-content" style="display:none">
+          <p id="pm-empty" style="display:none" class="small">No cards yet. Add one above.</p>
+          <table id="pm-table" style="display:none">
+            <thead><tr><th>Card</th><th>Default</th><th></th></tr></thead>
+            <tbody id="pm-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    ${stripeConfigured ? '<script src="https://js.stripe.com/v3/"></script>' : ''}
+    <script>
+      async function loadPaymentMethods() {
+        const res = await fetch('${apiBase}/api/app/payment-methods', { credentials: 'same-origin' });
+        if (res.status === 401) { window.location.href = '/app/login?redirect=' + encodeURIComponent('/settings/payment-methods'); return; }
+        const data = await res.json();
+        const methods = data.payment_methods || [];
+        document.getElementById('pm-loading').style.display = 'none';
+        document.getElementById('pm-content').style.display = 'block';
+        if (methods.length === 0) {
+          document.getElementById('pm-empty').style.display = 'block';
+        } else {
+          document.getElementById('pm-table').style.display = 'table';
+          const tbody = document.getElementById('pm-tbody');
+          tbody.innerHTML = methods.map(pm => '<tr><td>' + escapeHtml(pm.alias) + '</td><td>' + (pm.is_default ? '<span class="badge">Default</span>' : '-') + '</td><td class="actions">' + (!pm.is_default ? '<button type="button" class="btn ghost set-default-btn" data-id="' + escapeHtml(pm.id) + '">Set default</button> ' : '') + '<button type="button" class="btn danger delete-btn" data-id="' + escapeHtml(pm.id) + '">Delete</button></td></tr>').join('');
+          tbody.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.onclick = async () => {
+              if (!confirm('Delete this card?')) return;
+              const r = await fetch('${apiBase}/api/app/payment-methods/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE', credentials: 'same-origin' });
+              if (r.status === 401) { window.location.href = '/app/login?redirect=' + encodeURIComponent('/settings/payment-methods'); return; }
+              if (r.ok) loadPaymentMethods(); else alert(((await r.json()).message) || 'Delete failed');
+            };
+          });
+          tbody.querySelectorAll('.set-default-btn').forEach(btn => {
+            btn.onclick = async () => {
+              const r = await fetch('${apiBase}/api/app/payment-methods/' + encodeURIComponent(btn.dataset.id) + '/default', { method: 'POST', credentials: 'same-origin' });
+              if (r.status === 401) { window.location.href = '/app/login?redirect=' + encodeURIComponent('/settings/payment-methods'); return; }
+              if (r.ok) loadPaymentMethods(); else alert(((await r.json()).message) || 'Set default failed');
+            };
+          });
+        }
+      }
+      function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c] || c)); }
+      document.getElementById('logout-link').onclick = async (e) => {
+        e.preventDefault();
+        await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        window.location.href = '/';
+      };
+      loadPaymentMethods();
+      ${stripeConfigured ? `
+      (function() {
+        if (typeof Stripe === 'undefined') return;
+        const stripe = Stripe(${JSON.stringify(params.publishableKey)});
+        const elements = stripe.elements();
+        const cardElement = elements.create('card', { style: { base: { fontSize: '16px', color: '#32325d' }, invalid: { color: '#fa755a' } } });
+        cardElement.mount('#card-element');
+        cardElement.on('change', function(e) { document.getElementById('card-errors').textContent = e.error ? e.error.message : ''; });
+        document.getElementById('add-card-form').addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const btn = document.getElementById('submit-btn');
+          btn.disabled = true;
+          btn.textContent = 'Processing…';
+          const { error, paymentMethod } = await stripe.createPaymentMethod({ type: 'card', card: cardElement });
+          if (error) {
+            document.getElementById('card-errors').textContent = error.message || 'Failed';
+            btn.disabled = false;
+            btn.textContent = 'Save card';
+            return;
+          }
+          try {
+            const res = await fetch('${apiBase}/api/app/payment-methods', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ payment_method_id: paymentMethod.id }),
+              credentials: 'same-origin'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
+            loadPaymentMethods();
+            document.getElementById('card-errors').textContent = '';
+            cardElement.clear();
+          } catch (err) {
+            document.getElementById('card-errors').textContent = err.message || 'Save failed';
+          }
+          btn.disabled = false;
+          btn.textContent = 'Save card';
+        });
+      })();
+      ` : ''}
+    </script>`
   );
 }
 

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
 import { randomToken } from '../lib/crypto';
@@ -5,7 +6,7 @@ import { DomainError, AegisService } from '../services/aegis';
 import { AdminAuthService } from '../services/adminAuth';
 import { SandboxFaultService, FaultScope, SandboxPresetName } from '../services/sandboxFaults';
 import { WebAuthnService } from '../services/webauthn';
-import { renderActionAuditPage, renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage, renderAddCardPage } from '../views';
+import { renderActionAuditPage, renderAdminLoginPage, renderAdminPage, renderAppLoginPage, renderApprovalPage, renderApprovalResultPage, renderAgentsPage, renderDashboardPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage, renderAddCardPage, renderPaymentMethodsPage } from '../views';
 import { DecisionSource } from '../types';
 
 export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService, sandboxFaults: SandboxFaultService): Router {
@@ -82,13 +83,63 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     res.type('html').send(renderHomePage());
   });
 
+  router.get('/app/login', (req, res) => {
+    const error = typeof req.query.error === 'string' ? req.query.error : undefined;
+    const redirect = typeof req.query.redirect === 'string' ? req.query.redirect : '/dashboard';
+    const success = req.query.success === '1' || req.query.success === 'true';
+    res.type('html').send(renderAppLoginPage({ error, redirect, success }));
+  });
+
+  function requireAppSessionRedirect(req: any, res: any, next: any) {
+    const config = service.getConfig();
+    const token = (req.cookies?.[config.appSessionCookieName] ?? req.cookies?.aegis_app_session) as string | undefined;
+    if (!token) {
+      return res.redirect(`/app/login?redirect=${encodeURIComponent(req.originalUrl || req.path || '/dashboard')}`);
+    }
+    const session = service.getStore().findAppSessionByToken(token);
+    if (!session) {
+      return res.redirect(`/app/login?redirect=${encodeURIComponent(req.originalUrl || req.path || '/dashboard')}`);
+    }
+    const endUser = service.getStore().getEndUserById(session.endUserId);
+    if (!endUser || endUser.status !== 'active') {
+      return res.redirect(`/app/login?redirect=${encodeURIComponent(req.originalUrl || req.path || '/dashboard')}`);
+    }
+    req.appUserId = session.endUserId;
+    req.appEndUser = endUser;
+    next();
+  }
+
+  router.get('/dashboard', requireAppSessionRedirect, (_req, res) => {
+    res.type('html').send(renderDashboardPage());
+  });
+
+  router.get('/settings/agents', requireAppSessionRedirect, (_req, res) => {
+    res.type('html').send(renderAgentsPage());
+  });
+
+  router.get('/settings/payment-methods', requireAppSessionRedirect, (req, res) => {
+    const config = service.getConfig();
+    const baseUrl = config.baseUrl ?? `${req.protocol}://${req.get('host')}`;
+    res.type('html').send(
+      renderPaymentMethodsPage({
+        publishableKey: config.stripePublishableKey ?? null,
+        baseUrl,
+      })
+    );
+  });
+
   router.get('/healthz', (_req, res) => {
     res.json({ ok: true, service: 'aegis-mvp', time: new Date().toISOString() });
   });
 
   router.get('/docs/openapi.yaml', (_req, res) => {
     const file = path.join(process.cwd(), 'docs', 'openapi.yaml');
-    res.type('yaml').sendFile(file);
+    const resolved = path.resolve(file);
+    if (!fs.existsSync(resolved)) {
+      res.status(404).type('text/plain').send('OpenAPI spec not found');
+      return;
+    }
+    res.type('yaml').sendFile(resolved);
   });
 
   router.get('/approve/:token', (req, res) => {

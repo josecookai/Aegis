@@ -16,6 +16,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/docs ./docs
 RUN mkdir -p /app/data
 
 ENV NODE_ENV=production

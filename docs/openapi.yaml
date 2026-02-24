@@ -1,28 +1,41 @@
 openapi: 3.1.0
 info:
   title: Aegis MVP API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Aegis MVP prototype API for agent-submitted payment authorization requests.
-    This build includes web approval (magic link) and mock card/crypto execution rails.
+    Includes Agent API (X-Aegis-API-Key), App API (session cookie), Auth (Magic Link), and Dev API (admin session).
 servers:
   - url: http://localhost:3000
     description: Local dev
+  - url: https://aegis-production-7cee.up.railway.app
+    description: Production (Railway)
 components:
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-Aegis-API-Key
+      description: Agent API key for v1 endpoints
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: aegis_app_session
+      description: App session cookie (set after Magic Link login)
+    AdminCookieAuth:
+      type: apiKey
+      in: cookie
+      name: aegis_admin_session
+      description: Admin session cookie (set after password login)
   schemas:
     RequestAction:
       type: object
-      required: [idempotency_key, end_user_id, action_type, details, callback_url]
+      required: [idempotency_key, end_user_id, action_type, details]
       properties:
         idempotency_key: { type: string }
         end_user_id: { type: string }
         action_type: { type: string, enum: [payment] }
-        callback_url: { type: string, format: uri }
+        callback_url: { type: string, format: uri, description: Optional; omit for polling mode }
         expires_at: { type: string, format: date-time }
         metadata:
           type: object
@@ -49,9 +62,7 @@ components:
         end_user_id: { type: string }
         callback_url: { type: string, format: uri }
         expires_at: { type: string, format: date-time }
-        metadata:
-          type: object
-          additionalProperties: true
+        metadata: { type: object, additionalProperties: true }
         details:
           type: object
           properties:
@@ -72,21 +83,43 @@ components:
             payment_id: { type: [string, 'null'] }
             error_code: { type: [string, 'null'] }
             error_message: { type: [string, 'null'] }
+    Plan:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        price_cents: { type: integer }
+        interval: { type: string }
+        features: { type: array, items: { type: string } }
+    Agent:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { type: string }
+        created_at: { type: string, format: date-time }
+    PaymentMethod:
+      type: object
+      properties:
+        id: { type: string }
+        alias: { type: string }
+        is_default: { type: boolean }
+        created_at: { type: string, format: date-time }
     WebhookSignatureHeader:
       type: string
       example: t=1700000000,v1=<hex-hmac>
-security:
-  - ApiKeyAuth: []
+
 paths:
+  # ─── Agent API (X-Aegis-API-Key) ────────────────────────────────────────
   /v1/request_action:
     post:
       summary: Create a payment authorization request
+      security: [{ ApiKeyAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/RequestAction'
+            schema: { $ref: '#/components/schemas/RequestAction' }
       responses:
         '201':
           description: Created
@@ -95,8 +128,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  action:
-                    $ref: '#/components/schemas/Action'
+                  action: { $ref: '#/components/schemas/Action' }
                   links:
                     type: object
                     properties:
@@ -106,6 +138,7 @@ paths:
   /v1/actions/{actionId}:
     get:
       summary: Get an action by ID
+      security: [{ ApiKeyAuth: [] }]
       parameters:
         - in: path
           name: actionId
@@ -119,12 +152,31 @@ paths:
               schema:
                 type: object
                 properties:
-                  action:
-                    $ref: '#/components/schemas/Action'
+                  action: { $ref: '#/components/schemas/Action' }
+        '404': { description: Not found }
+  /v1/requests/{id}:
+    get:
+      summary: Get an action by ID (alias for /v1/actions/{actionId})
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Action details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action: { $ref: '#/components/schemas/Action' }
         '404': { description: Not found }
   /v1/actions/{actionId}/cancel:
     post:
       summary: Cancel an awaiting_approval action
+      security: [{ ApiKeyAuth: [] }]
       parameters:
         - in: path
           name: actionId
@@ -138,12 +190,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  action:
-                    $ref: '#/components/schemas/Action'
+                  action: { $ref: '#/components/schemas/Action' }
         '409': { description: Invalid state }
   /v1/payment_methods/capabilities:
     get:
       summary: Get capabilities for an end user
+      security: [{ ApiKeyAuth: [] }]
       parameters:
         - in: query
           name: end_user_id
@@ -164,9 +216,11 @@ paths:
                   methods:
                     type: array
                     items: { type: object, additionalProperties: true }
+        '400': { description: Missing end_user_id }
   /v1/webhooks/test:
     post:
       summary: Queue a webhook test event (prototype)
+      security: [{ ApiKeyAuth: [] }]
       requestBody:
         required: true
         content:
@@ -186,6 +240,533 @@ paths:
                 properties:
                   queued: { type: boolean }
                   event_id: { type: string }
+
+  # ─── Auth (Magic Link) ────────────────────────────────────────────────────
+  /auth/magic-link/request:
+    post:
+      summary: Request Magic Link login email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: Email sent (or user created)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  message: { type: string }
+        '400': { description: Invalid email }
+  /auth/magic-link/verify:
+    get:
+      summary: Verify Magic Link token and create session
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema: { type: string }
+        - in: query
+          name: redirect
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirect to redirect param or /
+        '302':
+          description: Redirect to /?error=... on failure
+  /auth/logout:
+    post:
+      summary: Clear app session cookie
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  # ─── App API (aegis_app_session cookie) ─────────────────────────────────────
+  /api/app/plans:
+    get:
+      summary: List available plans
+      responses:
+        '200':
+          description: Plans list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items: { $ref: '#/components/schemas/Plan' }
+  /api/app/me:
+    get:
+      summary: Get current user and plan
+      security: [{ CookieAuth: [] }]
+      responses:
+        '200':
+          description: User and plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string }
+                      display_name: { type: string }
+                  plan: { $ref: '#/components/schemas/Plan' }
+        '401': { description: Session required }
+  /api/app/agents:
+    get:
+      summary: List agents for current user
+      security: [{ CookieAuth: [] }]
+      responses:
+        '200':
+          description: Agents list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items: { $ref: '#/components/schemas/Agent' }
+        '401': { description: Session required }
+    post:
+      summary: Create agent and get API key
+      security: [{ CookieAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, default: 'My Agent' }
+      responses:
+        '201':
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  agent: { $ref: '#/components/schemas/Agent' }
+                  api_key: { type: string, description: 'Shown only once' }
+                  webhook_secret: { type: string }
+                  message: { type: string }
+        '401': { description: Session required }
+  /api/app/agents/{id}:
+    delete:
+      summary: Delete owned agent
+      security: [{ CookieAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401': { description: Session required }
+        '404': { description: Not found }
+  /api/app/payment-methods:
+    get:
+      summary: List payment methods for current user
+      security: [{ CookieAuth: [] }]
+      responses:
+        '200':
+          description: Payment methods list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment_methods:
+                    type: array
+                    items: { $ref: '#/components/schemas/PaymentMethod' }
+        '401': { description: Session required }
+    post:
+      summary: Add payment method (Stripe pm_xxx)
+      security: [{ CookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_method_id]
+              properties:
+                payment_method_id: { type: string, description: 'Stripe pm_xxx' }
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  payment_method_id: { type: string }
+                  card:
+                    type: object
+                    properties:
+                      brand: { type: string }
+                      last4: { type: string }
+                      alias: { type: string }
+        '400': { description: Invalid payment_method_id or STRIPE_NOT_CONFIGURED }
+        '401': { description: Session required }
+  /api/app/payment-methods/{id}:
+    delete:
+      summary: Delete payment method
+      security: [{ CookieAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401': { description: Session required }
+        '404': { description: Not found }
+  /api/app/payment-methods/{id}/default:
+    post:
+      summary: Set default payment method
+      security: [{ CookieAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401': { description: Session required }
+        '404': { description: Not found }
+  /api/app/pending:
+    get:
+      summary: List awaiting_approval actions for user
+      parameters:
+        - in: query
+          name: user_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pending items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array }
+                  count: { type: integer }
+        '400': { description: Missing user_id }
+        '403': { description: Invalid user }
+  /api/app/history:
+    get:
+      summary: List action history for user
+      parameters:
+        - in: query
+          name: user_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: History
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { description: Missing user_id }
+        '403': { description: Invalid user }
+  /api/app/approval:
+    get:
+      summary: Get approval view by token or action_id+user_id
+      parameters:
+        - in: query
+          name: token
+          schema: { type: string }
+        - in: query
+          name: action_id
+          schema: { type: string }
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Approval view
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  token: { type: string }
+                  already_decided: { type: boolean }
+                  decision: { type: string }
+                  action: { $ref: '#/components/schemas/Action' }
+                  end_user: { type: object }
+        '400': { description: Invalid params }
+  /api/app/approval/decision:
+    post:
+      summary: Submit approval decision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                token: { type: string }
+                action_id: { type: string }
+                user_id: { type: string }
+                decision: { type: string, enum: [approve, deny] }
+                decision_source: { type: string, enum: [app_biometric, web_magic_link] }
+      responses:
+        '200':
+          description: Decision submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  action_id: { type: string }
+                  status: { type: string }
+        '400': { description: Invalid params }
+        '403': { description: Not authorized }
+  /api/app/devices:
+    get:
+      summary: List devices for user
+      parameters:
+        - in: query
+          name: user_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Devices list
+        '400': { description: Missing user_id }
+    post:
+      summary: Register device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, platform, push_token]
+              properties:
+                user_id: { type: string }
+                platform: { type: string, enum: [ios, android] }
+                push_token: { type: string }
+      responses:
+        '201':
+          description: Device registered
+        '400': { description: Invalid params }
+  /api/app/devices/{id}:
+    delete:
+      summary: Delete device
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: user_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Not found }
+  /api/app/admin/history:
+    get:
+      summary: List all actions (admin)
+      security: [{ AdminCookieAuth: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: offset
+          schema: { type: integer }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Admin history
+        '401': { description: Admin required }
+
+  # ─── Dev API (admin session) ──────────────────────────────────────────────
+  /api/dev/actions:
+    get:
+      summary: List all actions (dev)
+      security: [{ AdminCookieAuth: [] }]
+      responses:
+        '200':
+          description: Actions list
+        '401': { description: Admin required }
+  /api/dev/payment-methods:
+    get:
+      summary: List payment methods for user (dev)
+      security: [{ AdminCookieAuth: [] }]
+      parameters:
+        - in: query
+          name: user_id
+          schema: { type: string, default: usr_demo }
+      responses:
+        '200':
+          description: Payment methods
+        '401': { description: Admin required }
+    post:
+      summary: Add payment method (dev, Stripe pm_xxx)
+      security: [{ AdminCookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_method_id]
+              properties:
+                payment_method_id: { type: string }
+                user_id: { type: string }
+      responses:
+        '201': { description: Added }
+        '400': { description: Invalid }
+        '401': { description: Admin required }
+  /api/dev/payment-methods/{id}:
+    delete:
+      summary: Delete payment method (dev)
+      security: [{ AdminCookieAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: user_id
+          schema: { type: string }
+      responses:
+        '200': { description: Deleted }
+        '401': { description: Admin required }
+  /api/dev/workers/tick:
+    post:
+      summary: Trigger worker tick (expire, execute, webhooks)
+      security: [{ AdminCookieAuth: [] }]
+      responses:
+        '200':
+          description: Tick result
+        '401': { description: Admin required }
+  /api/dev/actions/{actionId}/decision:
+    post:
+      summary: Submit dev decision (approve/deny)
+      security: [{ AdminCookieAuth: [] }]
+      parameters:
+        - in: path
+          name: actionId
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, deny] }
+      responses:
+        '200': { description: Decision submitted }
+        '401': { description: Admin required }
+  /api/dev/stripe/setup-test-card:
+    post:
+      summary: Bind Stripe test card (4242...) for user
+      security: [{ AdminCookieAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string }
+                card_number: { type: string }
+      responses:
+        '200': { description: Test card bound }
+        '400': { description: STRIPE_NOT_CONFIGURED or unsupported card }
+        '401': { description: Admin required }
+
+  # ─── Health ───────────────────────────────────────────────────────────────
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  service: { type: string }
+                  time: { type: string, format: date-time }
+
 webhooks:
   aegisActionEvent:
     post:
@@ -194,8 +775,7 @@ webhooks:
         - in: header
           name: X-Aegis-Signature
           required: true
-          schema:
-            $ref: '#/components/schemas/WebhookSignatureHeader'
+          schema: { $ref: '#/components/schemas/WebhookSignatureHeader' }
         - in: header
           name: X-Aegis-Event-Id
           required: true
