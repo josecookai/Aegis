@@ -131,9 +131,80 @@ export class AegisStore {
     return this.db.prepare('SELECT * FROM agents ORDER BY created_at DESC').all() as AgentRecord[];
   }
 
+  listAgentsByOwner(ownerUserId: string): AgentRecord[] {
+    return this.db
+      .prepare('SELECT * FROM agents WHERE owner_user_id = ? ORDER BY created_at DESC')
+      .all(ownerUserId) as AgentRecord[];
+  }
+
+  insertAgent(name: string, apiKeyHash: string, webhookSecret: string, ownerUserId: string): AgentRecord {
+    const id = randomId('agt');
+    const now = nowIso();
+    this.db
+      .prepare(
+        'INSERT INTO agents (id, name, api_key_hash, webhook_secret, status, owner_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(id, name, apiKeyHash, webhookSecret, 'active', ownerUserId, now);
+    return this.getAgentById(id)!;
+  }
+
+  deleteAgent(agentId: string, ownerUserId: string): boolean {
+    const row = this.db.prepare('SELECT id FROM agents WHERE id = ? AND owner_user_id = ?').get(agentId, ownerUserId) as { id: string } | undefined;
+    if (!row) return false;
+    this.db.prepare('DELETE FROM agent_user_links WHERE agent_id = ?').run(agentId);
+    this.db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
+    return true;
+  }
+
+  linkAgentToUser(agentId: string, userId: string): void {
+    const now = nowIso();
+    this.db.prepare('INSERT OR IGNORE INTO agent_user_links (agent_id, end_user_id, created_at) VALUES (?, ?, ?)').run(agentId, userId, now);
+  }
+
+  listPlans(): Array<{ id: string; name: string; price_cents: number; interval: string; features_json: string }> {
+    return this.db.prepare('SELECT id, name, price_cents, interval, features_json FROM plans ORDER BY price_cents ASC').all() as Array<{
+      id: string;
+      name: string;
+      price_cents: number;
+      interval: string;
+      features_json: string;
+    }>;
+  }
+
+  getUserPlan(userId: string): { plan_id: string; name: string; price_cents: number; interval: string; features_json: string } | null {
+    const row = this.db
+      .prepare(
+        `SELECT p.id as plan_id, p.name, p.price_cents, p.interval, p.features_json
+         FROM user_plans up JOIN plans p ON up.plan_id = p.id
+         WHERE up.end_user_id = ?`
+      )
+      .get(userId) as { plan_id: string; name: string; price_cents: number; interval: string; features_json: string } | undefined;
+    return row ?? null;
+  }
+
+  setUserPlan(userId: string, planId: string): void {
+    const now = nowIso();
+    this.db.prepare('DELETE FROM user_plans WHERE end_user_id = ?').run(userId);
+    this.db.prepare('INSERT INTO user_plans (end_user_id, plan_id, created_at) VALUES (?, ?, ?)').run(userId, planId, now);
+  }
+
   getEndUserById(userId: string): EndUserRecord | null {
     const row = this.db.prepare('SELECT * FROM end_users WHERE id = ?').get(userId) as EndUserRecord | undefined;
     return row ?? null;
+  }
+
+  getEndUserByEmail(email: string): EndUserRecord | null {
+    const row = this.db.prepare('SELECT * FROM end_users WHERE email = ?').get(email.trim().toLowerCase()) as EndUserRecord | undefined;
+    return row ?? null;
+  }
+
+  createEndUser(email: string, displayName: string): EndUserRecord {
+    const id = randomId('usr');
+    const now = nowIso();
+    this.db
+      .prepare('INSERT INTO end_users (id, email, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, email.trim().toLowerCase(), displayName || email.split('@')[0], 'active', now);
+    return this.getEndUserById(id)!;
   }
 
   resolveApprovalMagicLinkContext(rawToken: string): { userId: string; actionId: string } | null {
@@ -313,6 +384,32 @@ export class AegisStore {
     return { rows, total };
   }
 
+  listActionsForAdmin(opts: { limit?: number; offset?: number; status?: ActionStatus; userId?: string } = {}): {
+    rows: ActionRecord[];
+    total: number;
+  } {
+    const limit = opts.limit ?? 50;
+    const offset = opts.offset ?? 0;
+    const where: string[] = [];
+    const params: Array<string | number> = [];
+
+    if (opts.status) {
+      where.push('status = ?');
+      params.push(opts.status);
+    }
+    if (opts.userId) {
+      where.push('end_user_id = ?');
+      params.push(opts.userId);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const total = (this.db.prepare(`SELECT COUNT(1) as c FROM actions ${whereSql}`).get(...params) as { c: number }).c;
+    const rows = this.db
+      .prepare(`SELECT * FROM actions ${whereSql} ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as ActionRecord[];
+    return { rows, total };
+  }
+
   transitionActionStatus(opts: TransitionActionOptions): ActionRecord {
     const now = nowIso();
     const tx = this.db.transaction(() => {
@@ -459,6 +556,35 @@ export class AegisStore {
       'INSERT INTO magic_links (id, user_id, action_id, token_hash, purpose, expires_at, consumed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(magicLinkId, userId, actionId, tokenHash, purpose, expiresAt, null, nowIso());
     return { magicLinkId, token };
+  }
+
+  createAppSession(endUserId: string, ttlMinutes: number): { sessionId: string; token: string } {
+    const token = randomId('sess');
+    const tokenHash = sha256(token);
+    const sessionId = randomId('asess');
+    const now = nowIso();
+    const expiresAt = addMinutesIso(now, ttlMinutes);
+    this.db
+      .prepare(
+        'INSERT INTO app_sessions (id, end_user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(sessionId, endUserId, tokenHash, expiresAt, now);
+    return { sessionId, token };
+  }
+
+  findAppSessionByToken(token: string): { sessionId: string; endUserId: string } | null {
+    const tokenHash = sha256(token);
+    const row = this.db
+      .prepare(
+        'SELECT id, end_user_id FROM app_sessions WHERE token_hash = ? AND datetime(expires_at) > datetime(?)'
+      )
+      .get(tokenHash, nowIso()) as { id: string; end_user_id: string } | undefined;
+    if (!row) return null;
+    return { sessionId: row.id, endUserId: row.end_user_id };
+  }
+
+  invalidateAppSession(sessionId: string): void {
+    this.db.prepare('DELETE FROM app_sessions WHERE id = ?').run(sessionId);
   }
 
   createWebauthnChallenge(opts: { userId: string; actionId: string | null; purpose: string; challenge: string; expiresAt: string }): WebauthnChallengeRecord {

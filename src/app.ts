@@ -74,6 +74,22 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     res.json({ callbacks: testCallbackInbox });
   });
 
+  app.post('/_test/app-session', (req, res) => {
+    if (process.env.NODE_ENV !== 'test') {
+      return res.status(404).json({ error: 'NOT_FOUND' });
+    }
+    const userId = String(req.body?.user_id ?? 'usr_demo').trim();
+    const endUser = store.getEndUserById(userId);
+    if (!endUser) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+    const { token } = store.createAppSession(userId, config.appSessionTtlMinutes);
+    res.cookie(config.appSessionCookieName, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: config.appSessionTtlMinutes * 60 * 1000,
+    });
+    res.json({ ok: true, user_id: userId });
+  });
+
   app.post('/api/cron/tick', async (req, res) => {
     const secret = process.env.CRON_SECRET;
     const allowInsecureCron =
@@ -126,5 +142,11 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
 }
 
 function isProtectedPath(pathname: string): boolean {
-  return pathname === '/admin' || pathname === '/dev' || pathname.startsWith('/dev/') || pathname.startsWith('/api/dev/');
+  return (
+    pathname === '/admin' ||
+    pathname === '/dev' ||
+    pathname.startsWith('/dev/') ||
+    pathname.startsWith('/api/dev/') ||
+    pathname.startsWith('/api/app/admin/')
+  );
 }

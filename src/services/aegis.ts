@@ -48,6 +48,38 @@ export class AegisService {
     return this.config;
   }
 
+  requestLoginMagicLink(email: string): { ok: true; message: string } {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !trimmed.includes('@')) {
+      throw new DomainError('INVALID_EMAIL', 'Valid email is required', 400);
+    }
+    let user = this.store.getEndUserByEmail(trimmed);
+    if (!user) user = this.store.createEndUser(trimmed, trimmed.split('@')[0]);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const { token } = this.store.createMagicLink(user.id, null, 'login', expiresAt);
+    this.notifications.sendLoginMagicLinkEmail({
+      toEmail: user.email,
+      userName: user.display_name,
+      magicToken: token,
+      expiresAt,
+    });
+    return { ok: true, message: 'If an account exists, a login link was sent' };
+  }
+
+  verifyLoginMagicLinkAndCreateSession(token: string): { userId: string; sessionToken: string } {
+    const resolved = this.store.resolveMagicLink(token);
+    if (!resolved || resolved.purpose !== 'login' || resolved.consumedAt) {
+      throw new DomainError('INVALID_LINK', 'Invalid or expired login link', 400);
+    }
+    const user = this.store.getEndUserById(resolved.userId);
+    if (!user || user.status !== 'active') {
+      throw new DomainError('INVALID_USER', 'User not found or inactive', 403);
+    }
+    this.store.consumeMagicLink(resolved.magicLinkId);
+    const { token: sessionToken } = this.store.createAppSession(user.id, this.config.appSessionTtlMinutes);
+    return { userId: user.id, sessionToken };
+  }
+
   authenticateAgent(apiKey: string | null | undefined): AgentRecord {
     if (!apiKey) {
       throw new DomainError('UNAUTHORIZED', 'Missing API key', 401);
@@ -262,6 +294,9 @@ export class AegisService {
   submitDecisionByActionId(actionId: string, userId: string, decision: 'approve' | 'deny', source: DecisionSource): ActionRecord {
     const view = this.getApprovalViewByActionId(actionId, userId);
     if (!view.valid || !view.action || !view.endUser) {
+      if (view.reason === 'User mismatch') {
+        throw new DomainError('APPROVAL_NOT_ASSIGNED_TO_USER', 'Action is not assigned to this user', 403);
+      }
       throw new DomainError('INVALID_REQUEST', view.reason ?? 'Cannot resolve action', 400);
     }
     if (new Date(view.action.expires_at).getTime() < Date.now() && view.action.status === 'awaiting_approval') {

@@ -95,6 +95,35 @@ describe('Aegis MCP integration', () => {
     await expect(client.getStatus('nonexistent_action_id')).rejects.toThrow(/Aegis API error/);
   });
 
+  it('accepts request without callback_url (polling mode)', async () => {
+    const res = await fetch(`${baseUrl}/v1/request_action`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Aegis-API-Key': 'aegis_demo_agent_key',
+        'Idempotency-Key': `mcp_no_cb_${Date.now()}`,
+      },
+      body: JSON.stringify({
+        idempotency_key: `mcp_no_cb_${Date.now()}`,
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        details: {
+          amount: '1.00',
+          currency: 'USD',
+          recipient_name: 'Poll Test',
+          description: 'Request without callback_url',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:poll',
+        },
+      }),
+    });
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.action).toBeDefined();
+    expect(data.action.status).toBe('awaiting_approval');
+  });
+
   it('full payment flow: request -> approve -> execute -> verify', async () => {
     const created = await client.requestPayment({
       amount: '99.00',

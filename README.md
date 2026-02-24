@@ -307,6 +307,7 @@ npm test
 | `/api/app/approval/decision` | POST | 提交批准/拒绝 |
 | `/api/app/pending` | GET | 待审批列表 |
 | `/api/app/history` | GET | 历史记录（分页） |
+| `/api/app/admin/history` | GET | 管理员历史记录（分页，支持 `status`/`user_id` 筛选） |
 
 **完整 API 文档：** [Aegis-API-Spec.md](Aegis-API-Spec.md)
 

@@ -93,6 +93,8 @@ quick_ref: |
 - **App 流程规格:** [Aegis-App-Flow-Spec.md](Aegis-App-Flow-Spec.md) — E2E 流程、审批状态机、子流程、异常与边界
 - **API 规格:** [Aegis-API-Spec.md](Aegis-API-Spec.md) — 鉴权、端点、回调、数据模型、限流与幂等
 - **移动端 UX 规格:** [Aegis-Mobile-UX-Spec.md](Aegis-Mobile-UX-Spec.md) — IA、关键界面、推送与深链、无障碍
+- **测试任务分工:** [docs/Agent-Test-Tasks.md](docs/Agent-Test-Tasks.md) — 3 Agent 测试覆盖率任务、指令模板、Todo 与 Checklist
+- **Demo + Tavily 任务分工:** [docs/Agent-Demo-Tavily-Tasks.md](docs/Agent-Demo-Tavily-Tasks.md) — Demo Stage 与 Tavily 式自助流程、3 Agent 指令、Todo 与 Checklist（含测试与覆盖率）
 
 ---
 

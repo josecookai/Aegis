@@ -536,6 +536,33 @@ describe('Aegis MVP prototype', () => {
     expect(missingRes.body.error).toBe('MISSING_USER_ID');
   });
 
+  it('GET /api/app/admin/history supports status filter and keeps admin auth', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    await api.get('/api/app/admin/history').expect(401);
+
+    const allRes = await api.get('/api/app/admin/history?limit=20&offset=0').set('Cookie', [adminCookie]).expect(200);
+    expect(Array.isArray(allRes.body.items)).toBe(true);
+    expect(allRes.body.limit).toBe(20);
+    expect(allRes.body.offset).toBe(0);
+
+    const deniedRes = await api
+      .get('/api/app/admin/history?status=denied&limit=50&offset=0')
+      .set('Cookie', [adminCookie])
+      .expect(200);
+    expect(deniedRes.body.filters.status).toBe('denied');
+    for (const item of deniedRes.body.items as Array<any>) {
+      expect(item.status).toBe('denied');
+    }
+
+    const invalidStatus = await api
+      .get('/api/app/admin/history?status=not_real')
+      .set('Cookie', [adminCookie])
+      .expect(400);
+    expect(invalidStatus.body.error).toBe('INVALID_STATUS');
+  });
+
   it('POST /v1/request_action returns Idempotency-Key header and Idempotency-Replayed on replay', async () => {
     const api = request(runtime.app);
     const body = {
@@ -722,6 +749,41 @@ describe('Aegis MVP prototype', () => {
     }
   });
 
+  it('rejects action_id approval decision for non-target active user with explicit error code', async () => {
+    const api = request(runtime.app);
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_wrong_user_action_id_decision_code',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        callback_url: `${baseUrl}/_test/callback`,
+        details: {
+          amount: '12.00',
+          currency: 'USD',
+          recipient_name: 'Wrong User Merchant',
+          description: 'wrong user action-id approval decision',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:wrong_user_case',
+        },
+      })
+      .expect(201);
+
+    const actionId = String(create.body.action.action_id);
+    const db = runtime.service.getStore().getRawDb();
+    db.prepare('INSERT OR IGNORE INTO end_users (id, email, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('usr_other_active', 'other.active@example.com', 'Other Active User', 'active', new Date().toISOString());
+
+    const res = await api
+      .post('/api/app/approval/decision')
+      .send({ action_id: actionId, user_id: 'usr_other_active', decision: 'approve', decision_source: 'app_biometric' })
+      .expect(403);
+
+    expect(res.body.error).toBe('APPROVAL_NOT_ASSIGNED_TO_USER');
+  });
+
   it('validates unsupported card_number before Stripe setup call', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);
@@ -732,6 +794,227 @@ describe('Aegis MVP prototype', () => {
       .expect(400);
 
     expect(res.body.error).toBe('UNSUPPORTED_TEST_CARD');
+  });
+
+  it('GET /v1/payment_methods/capabilities returns rails and methods for usr_demo', async () => {
+    const api = request(runtime.app);
+    const res = await api
+      .get('/v1/payment_methods/capabilities?end_user_id=usr_demo')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .expect(200);
+    expect(res.body).toHaveProperty('end_user_id', 'usr_demo');
+    expect(res.body).toHaveProperty('rails');
+    expect(Array.isArray(res.body.rails)).toBe(true);
+    expect(res.body).toHaveProperty('methods');
+    expect(Array.isArray(res.body.methods)).toBe(true);
+  });
+
+  it('GET /v1/payment_methods/capabilities requires API key', async () => {
+    const api = request(runtime.app);
+    await api.get('/v1/payment_methods/capabilities?end_user_id=usr_demo').expect(401);
+  });
+
+  it('GET /v1/payment_methods/capabilities returns 400 when end_user_id missing', async () => {
+    const api = request(runtime.app);
+    const res = await api
+      .get('/v1/payment_methods/capabilities')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .expect(400);
+    expect(res.body.error).toBe('MISSING_END_USER_ID');
+  });
+
+  it('POST /v1/webhooks/test creates webhook test', async () => {
+    const api = request(runtime.app);
+    const res = await api
+      .post('/v1/webhooks/test')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({ callback_url: 'https://httpbin.org/post' })
+      .expect(202);
+    expect(res.body).toHaveProperty('queued', true);
+    expect(res.body).toHaveProperty('event_id');
+  });
+
+  it('GET /api/dev/payment-methods returns list for user', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const res = await api
+      .get('/api/dev/payment-methods?user_id=usr_demo')
+      .set('Cookie', [adminCookie])
+      .expect(200);
+    expect(res.body).toHaveProperty('payment_methods');
+    expect(Array.isArray(res.body.payment_methods)).toBe(true);
+  });
+
+  it('GET /api/dev/payment-methods returns 404 for nonexistent user', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const res = await api
+      .get('/api/dev/payment-methods?user_id=usr_nonexistent')
+      .set('Cookie', [adminCookie])
+      .expect(404);
+    expect(res.body.error).toBe('USER_NOT_FOUND');
+  });
+
+  it('POST /api/dev/payment-methods returns 400 when payment_method_id invalid', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const res = await api
+      .post('/api/dev/payment-methods')
+      .set('Cookie', [adminCookie])
+      .send({ payment_method_id: 'invalid', user_id: 'usr_demo' })
+      .expect(400);
+    expect(res.body.error).toBe('INVALID_PAYMENT_METHOD');
+  });
+
+  it('DELETE /api/dev/payment-methods/:id removes payment method', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const store = runtime.service.getStore();
+    const pmId = store.insertPaymentMethod('usr_demo', 'card', 'Visa **** 4242', 'pm_test_123', '{}');
+
+    const res = await api
+      .delete(`/api/dev/payment-methods/${pmId}?user_id=usr_demo`)
+      .set('Cookie', [adminCookie])
+      .expect(200);
+    expect(res.body.ok).toBe(true);
+
+    const afterList = await api
+      .get('/api/dev/payment-methods?user_id=usr_demo')
+      .set('Cookie', [adminCookie])
+      .expect(200);
+    expect(afterList.body.payment_methods.find((p: any) => p.id === pmId)).toBeUndefined();
+  });
+
+  it('POST /api/dev/payment-methods/:id/default sets default', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+    const store = runtime.service.getStore();
+    const pmId = store.insertPaymentMethod('usr_demo', 'card', 'Visa **** 4242', 'pm_test_default', '{}');
+
+    const res = await api
+      .post(`/api/dev/payment-methods/${pmId}/default`)
+      .set('Cookie', [adminCookie])
+      .send({ user_id: 'usr_demo' })
+      .expect(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('/dev/add-card requires admin login', async () => {
+    const api = request(runtime.app);
+    await api.get('/dev/add-card').expect(302);
+    const adminCookie = await adminLogin(api);
+    const res = await api.get('/dev/add-card').set('Cookie', [adminCookie]);
+    expect([200, 302]).toContain(res.status);
+    if (res.status === 200) {
+      expect(res.text).toContain('add-card');
+    }
+  });
+
+  it('POST /auth/magic-link/request sends login email', async () => {
+    const api = request(runtime.app);
+    const res = await api
+      .post('/auth/magic-link/request')
+      .send({ email: 'magiclink-test@example.com' })
+      .expect(200);
+    expect(res.body.ok).toBe(true);
+    const outbox = runtime.service.getStore().listEmailOutbox(20);
+    const loginEmail = outbox.find((e: any) => {
+      try {
+        const m = JSON.parse(String(e.metadata_json || '{}'));
+        return m.type === 'login_magic_link';
+      } catch {
+        return false;
+      }
+    });
+    expect(loginEmail).toBeDefined();
+    const meta = JSON.parse(String(loginEmail?.metadata_json || '{}'));
+    expect(meta.login_url).toBeDefined();
+    const token = new URL(meta.login_url).searchParams.get('token');
+    expect(token).toBeTruthy();
+  });
+
+  it('GET /auth/magic-link/verify creates session and redirects', async () => {
+    const api = request(runtime.app);
+    await api.post('/auth/magic-link/request').send({ email: 'verify-session@test.com' }).expect(200);
+    const outbox = runtime.service.getStore().listEmailOutbox(20);
+    const loginEmail = outbox.find((e: any) => {
+      try {
+        const m = JSON.parse(String(e.metadata_json || '{}'));
+        return m.type === 'login_magic_link' && String(e.to_email).includes('verify-session');
+      } catch {
+        return false;
+      }
+    });
+    expect(loginEmail).toBeDefined();
+    const meta = JSON.parse(String(loginEmail?.metadata_json || '{}'));
+    const loginUrl = meta.login_url;
+    expect(loginUrl).toBeTruthy();
+    const token = new URL(loginUrl).searchParams.get('token');
+    const res = await api.get(`/auth/magic-link/verify?token=${token}`).expect(302);
+    const appCookie = extractCookieValue(res.headers['set-cookie'], 'aegis_app_session');
+    expect(appCookie).toBeTruthy();
+  });
+
+  it('GET /api/app/plans returns free and pro plans', async () => {
+    const api = request(runtime.app);
+    const res = await api.get('/api/app/plans').expect(200);
+    expect(res.body.plans).toBeDefined();
+    expect(Array.isArray(res.body.plans)).toBe(true);
+    const free = res.body.plans.find((p: any) => p.id === 'plan_free');
+    const pro = res.body.plans.find((p: any) => p.id === 'plan_pro');
+    expect(free).toBeDefined();
+    expect(pro).toBeDefined();
+    expect(free.price_cents).toBe(0);
+    expect(pro.price_cents).toBe(1999);
+  });
+
+  it('GET /api/app/agents requires session', async () => {
+    const api = request(runtime.app);
+    await api.get('/api/app/agents').expect(401);
+  });
+
+  async function getAppSessionCookie(api: any, userId = 'usr_demo'): Promise<string> {
+    const res = await api.post('/_test/app-session').send({ user_id: userId }).expect(200);
+    const cookie = extractCookieValue(res.headers['set-cookie'], 'aegis_app_session');
+    if (!cookie) throw new Error('missing app session cookie');
+    return `aegis_app_session=${cookie}`;
+  }
+
+  it('POST /api/app/agents creates agent and returns api_key', async () => {
+    const api = request(runtime.app);
+    const appCookie = await getAppSessionCookie(api);
+    const res = await api
+      .post('/api/app/agents')
+      .set('Cookie', [appCookie])
+      .send({ name: 'Test Agent' })
+      .expect(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.agent).toBeDefined();
+    expect(res.body.agent.id).toMatch(/^agt_/);
+    expect(res.body.api_key).toMatch(/^aegis_/);
+  });
+
+  it('GET /api/app/agents returns agents for session user', async () => {
+    const api = request(runtime.app);
+    const appCookie = await getAppSessionCookie(api);
+    const res = await api.get('/api/app/agents').set('Cookie', [appCookie]).expect(200);
+    expect(res.body.agents).toBeDefined();
+    expect(Array.isArray(res.body.agents)).toBe(true);
+    expect(res.body.agents.some((a: any) => a.id === 'agt_demo')).toBe(true);
+  });
+
+  it('DELETE /api/app/agents/:id removes owned agent', async () => {
+    const api = request(runtime.app);
+    const appCookie = await getAppSessionCookie(api);
+    const createRes = await api
+      .post('/api/app/agents')
+      .set('Cookie', [appCookie])
+      .send({ name: 'To Delete' })
+      .expect(201);
+    const agentId = createRes.body.agent.id;
+    await api.delete(`/api/app/agents/${agentId}`).set('Cookie', [appCookie]).expect(200);
+    const listRes = await api.get('/api/app/agents').set('Cookie', [appCookie]).expect(200);
+    expect(listRes.body.agents.find((a: any) => a.id === agentId)).toBeUndefined();
   });
 });
 

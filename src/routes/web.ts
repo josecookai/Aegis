@@ -38,6 +38,46 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     res.redirect('/login');
   });
 
+  // App user magic link auth
+  router.post('/auth/magic-link/request', (req, res, next) => {
+    try {
+      const email = String(req.body?.email ?? '');
+      const result = service.requestLoginMagicLink(email);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/auth/magic-link/verify', (req, res, next) => {
+    try {
+      const token = String(req.query.token ?? '').trim();
+      if (!token) {
+        return res.redirect('/?error=missing_token');
+      }
+      const { sessionToken } = service.verifyLoginMagicLinkAndCreateSession(token);
+      const config = service.getConfig();
+      res.cookie(config.appSessionCookieName, sessionToken, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: false,
+        maxAge: config.appSessionTtlMinutes * 60 * 1000,
+      });
+      res.redirect(req.query.redirect ? String(req.query.redirect) : '/');
+    } catch (err) {
+      if (err instanceof DomainError) {
+        return res.redirect(`/?error=${encodeURIComponent(err.code)}`);
+      }
+      next(err);
+    }
+  });
+
+  router.post('/auth/logout', (req, res) => {
+    const config = service.getConfig();
+    res.clearCookie(config.appSessionCookieName);
+    res.json({ ok: true });
+  });
+
   router.get('/', (_req, res) => {
     res.type('html').send(renderHomePage());
   });

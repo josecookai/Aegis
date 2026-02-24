@@ -71,6 +71,7 @@ export interface AgentRecord {
   api_key_hash: string;
   webhook_secret: string;
   status: 'active' | 'disabled';
+  owner_user_id: string | null;
   created_at: string;
 }
 

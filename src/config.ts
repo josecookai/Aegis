@@ -12,6 +12,8 @@ export interface AppConfig {
   adminPassword: string;
   adminSessionSecret: string;
   adminSessionCookieName: string;
+  appSessionCookieName: string;
+  appSessionTtlMinutes: number;
   stripeSecretKey: string | null;
   stripePublishableKey: string | null;
 }
@@ -37,6 +39,8 @@ export function loadConfig(): AppConfig {
     adminPassword: process.env.ADMIN_PASSWORD ?? 'aegis_admin_dev',
     adminSessionSecret: process.env.ADMIN_SESSION_SECRET ?? 'aegis_admin_session_secret_dev_only',
     adminSessionCookieName: process.env.ADMIN_SESSION_COOKIE_NAME ?? 'aegis_admin_session',
+    appSessionCookieName: process.env.APP_SESSION_COOKIE_NAME ?? 'aegis_app_session',
+    appSessionTtlMinutes: Number(process.env.APP_SESSION_TTL_MINUTES ?? 10080), // 7 days
     stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? null,
     stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
   };

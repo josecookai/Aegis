@@ -232,34 +232,75 @@ function migrate(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
+
+    CREATE TABLE IF NOT EXISTS app_sessions (
+      id TEXT PRIMARY KEY,
+      end_user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (end_user_id) REFERENCES end_users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_sessions_token ON app_sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_app_sessions_user ON app_sessions(end_user_id);
+
+    CREATE TABLE IF NOT EXISTS plans (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      interval TEXT NOT NULL DEFAULT 'month',
+      features_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_plans (
+      end_user_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (end_user_id, plan_id),
+      FOREIGN KEY (end_user_id) REFERENCES end_users(id),
+      FOREIGN KEY (plan_id) REFERENCES plans(id)
+    );
   `);
+
+  // Backfill owner_user_id for existing agents table (SQLite: add column if missing)
+  try {
+    const cols = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!cols.some((c) => c.name === 'owner_user_id')) {
+      db.exec('ALTER TABLE agents ADD COLUMN owner_user_id TEXT REFERENCES end_users(id)');
+    }
+    db.prepare("UPDATE agents SET owner_user_id = 'usr_demo' WHERE id = 'agt_demo' AND owner_user_id IS NULL").run();
+  } catch {
+    /* column may already exist */
+  }
 }
 
 function seed(db: Database.Database): void {
   const now = nowIso();
-
-  const existingAgent = db
-    .prepare('SELECT COUNT(1) as c FROM agents')
-    .get() as { c: number };
-  if (existingAgent.c === 0) {
-    const demoApiKey = 'aegis_demo_agent_key';
-    db.prepare(
-      'INSERT INTO agents (id, name, api_key_hash, webhook_secret, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(
-      'agt_demo',
-      'Demo Agent',
-      sha256(demoApiKey),
-      'whsec_demo_agent',
-      'active',
-      now
-    );
-  }
 
   const existingUsers = db.prepare('SELECT COUNT(1) as c FROM end_users').get() as { c: number };
   if (existingUsers.c === 0) {
     db.prepare(
       'INSERT INTO end_users (id, email, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)'
     ).run('usr_demo', 'demo.user@example.com', 'Demo User', 'active', now);
+  }
+
+  const existingAgent = db
+    .prepare('SELECT COUNT(1) as c FROM agents')
+    .get() as { c: number };
+  if (existingAgent.c === 0) {
+    const demoApiKey = 'aegis_demo_agent_key';
+    const cols = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    const hasOwner = cols.some((c) => c.name === 'owner_user_id');
+    if (hasOwner) {
+      db.prepare(
+        'INSERT INTO agents (id, name, api_key_hash, webhook_secret, status, owner_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run('agt_demo', 'Demo Agent', sha256(demoApiKey), 'whsec_demo_agent', 'active', 'usr_demo', now);
+    } else {
+      db.prepare(
+        'INSERT INTO agents (id, name, api_key_hash, webhook_secret, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run('agt_demo', 'Demo Agent', sha256(demoApiKey), 'whsec_demo_agent', 'active', now);
+    }
   }
 
   const linkCount = db
@@ -303,6 +344,21 @@ function seed(db: Database.Database): void {
   const execCount = db.prepare('SELECT COUNT(1) as c FROM executions').get() as { c: number };
   if (execCount.c === 0) {
     // no-op; reserved to ensure table exists in some environments
+  }
+
+  const planCount = db.prepare('SELECT COUNT(1) as c FROM plans').get() as { c: number };
+  if (planCount.c === 0) {
+    db.prepare(
+      'INSERT INTO plans (id, name, price_cents, interval, features_json, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('plan_free', 'Free', 0, 'month', JSON.stringify(['10 approvals/month', '1 agent']), now);
+    db.prepare(
+      'INSERT INTO plans (id, name, price_cents, interval, features_json, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('plan_pro', 'Pro', 1999, 'month', JSON.stringify(['Unlimited approvals', '10 agents', 'Priority support']), now);
+  }
+
+  const userPlanCount = db.prepare('SELECT COUNT(1) as c FROM user_plans WHERE end_user_id = ?').get('usr_demo') as { c: number };
+  if (userPlanCount.c === 0) {
+    db.prepare('INSERT INTO user_plans (end_user_id, plan_id, created_at) VALUES (?, ?, ?)').run('usr_demo', 'plan_free', now);
   }
 
   const existingDocs = db.prepare('SELECT COUNT(1) as c FROM email_outbox').get() as { c: number };
