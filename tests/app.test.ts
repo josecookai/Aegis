@@ -936,7 +936,7 @@ describe('Aegis MVP prototype', () => {
   it('GET /auth/magic-link/verify creates session and redirects', async () => {
     const api = request(runtime.app);
     await api.post('/auth/magic-link/request').send({ email: 'verify-session@test.com' }).expect(200);
-    const outbox = runtime.service.getStore().listEmailOutbox(20);
+    const outbox = runtime.service.getStore().listEmailOutbox(100);
     const loginEmail = outbox.find((e: any) => {
       try {
         const m = JSON.parse(String(e.metadata_json || '{}'));
