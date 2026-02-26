@@ -31,6 +31,44 @@ export class NotificationService {
       from: this.config.emailFrom,
     });
   }
+
+  sendMagicLinkEmail(params: { toEmail: string; userName: string; loginUrl: string; expiresAt: string }): string {
+    const subject = 'Aegis Login Link';
+    const bodyText = [
+      `Hi ${params.userName},`,
+      '',
+      `Click to sign in: ${params.loginUrl}`,
+      `Expires at: ${params.expiresAt}`,
+      '',
+      'This link is for one-time use.',
+    ].join('\n');
+    const bodyHtml = `<p>Hi ${escapeHtml(params.userName)},</p><p><a href="${escapeHtml(params.loginUrl)}">Sign in to Aegis</a></p><p>Expires at: ${escapeHtml(params.expiresAt)}</p>`;
+    return this.store.queueEmail(params.toEmail, subject, bodyText, bodyHtml, {
+      type: 'magic_link_login',
+      login_url: params.loginUrl,
+      expires_at: params.expiresAt,
+      from: this.config.emailFrom,
+    });
+  }
+
+  sendPasswordResetEmail(params: { toEmail: string; userName: string; resetUrl: string; expiresAt: string }): string {
+    const subject = 'Aegis Password Reset Link';
+    const bodyText = [
+      `Hi ${params.userName},`,
+      '',
+      `Click to reset your password: ${params.resetUrl}`,
+      `Expires at: ${params.expiresAt}`,
+      '',
+      'If you did not request a password reset, you can ignore this email.',
+    ].join('\n');
+    const bodyHtml = `<p>Hi ${escapeHtml(params.userName)},</p><p><a href="${escapeHtml(params.resetUrl)}">Reset your password</a></p><p>Expires at: ${escapeHtml(params.expiresAt)}</p><p>If you did not request a password reset, you can ignore this email.</p>`;
+    return this.store.queueEmail(params.toEmail, subject, bodyText, bodyHtml, {
+      type: 'password_reset',
+      reset_url: params.resetUrl,
+      expires_at: params.expiresAt,
+      from: this.config.emailFrom,
+    });
+  }
 }
 
 function escapeHtml(input: string): string {

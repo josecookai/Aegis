@@ -10,7 +10,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "demo": "bash scripts/demo.sh",
-    "e2e:verify": "bash scripts/e2e-verify.sh"
+    "e2e:verify": "bash scripts/e2e-verify.sh",
+    "e2e:demo": "bash scripts/e2e-demo-verify.sh",
+    "e2e:auth": "bash scripts/auth-e2e-smoke.sh"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +33,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^25.3.0",
     "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^4.0.18",
     "supertest": "^7.2.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

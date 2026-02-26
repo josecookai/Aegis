@@ -12,8 +12,18 @@ export interface AppConfig {
   adminPassword: string;
   adminSessionSecret: string;
   adminSessionCookieName: string;
+  appSessionSecret: string;
+  appSessionCookieName: string;
   stripeSecretKey: string | null;
   stripePublishableKey: string | null;
+  passwordHashPepper?: string;
+  authOauthStateTtlMinutes?: number;
+  googleClientId?: string | null;
+  googleClientSecret?: string | null;
+  googleOauthRedirectUri?: string | null;
+  githubClientId?: string | null;
+  githubClientSecret?: string | null;
+  githubOauthRedirectUri?: string | null;
 }
 
 function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
@@ -37,7 +47,17 @@ export function loadConfig(): AppConfig {
     adminPassword: process.env.ADMIN_PASSWORD ?? 'aegis_admin_dev',
     adminSessionSecret: process.env.ADMIN_SESSION_SECRET ?? 'aegis_admin_session_secret_dev_only',
     adminSessionCookieName: process.env.ADMIN_SESSION_COOKIE_NAME ?? 'aegis_admin_session',
+    appSessionSecret: process.env.APP_SESSION_SECRET ?? 'aegis_app_session_secret_dev_only',
+    appSessionCookieName: process.env.APP_SESSION_COOKIE_NAME ?? 'aegis_app_session',
     stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? null,
     stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+    passwordHashPepper: process.env.PASSWORD_HASH_PEPPER ?? 'aegis_password_pepper_dev_only',
+    authOauthStateTtlMinutes: Number(process.env.AUTH_OAUTH_STATE_TTL_MINUTES ?? 10),
+    googleClientId: process.env.GOOGLE_CLIENT_ID ?? null,
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? null,
+    googleOauthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ?? null,
+    githubClientId: process.env.GITHUB_CLIENT_ID ?? null,
+    githubClientSecret: process.env.GITHUB_CLIENT_SECRET ?? null,
+    githubOauthRedirectUri: process.env.GITHUB_OAUTH_REDIRECT_URI ?? null,
   };
 }

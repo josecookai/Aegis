@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { assertTransition } from '../stateMachine';
-import { hmacSha256Hex, randomId, sha256, safeJsonParse } from '../lib/crypto';
+import { hmacSha256Hex, randomId, randomToken, sha256, safeJsonParse } from '../lib/crypto';
 import { addMinutesIso, nowIso } from '../lib/time';
 import {
   ActionApiResponse,
@@ -14,6 +14,11 @@ import {
   PaymentMethodRecord,
   PaymentRail,
   RequestActionInput,
+  TeamMemberRecord,
+  TeamRecord,
+  UserCredentialRecord,
+  OauthIdentityRecord,
+  OauthStateRecord,
   WebhookEventType,
   WebhookPayload,
 } from '../types';
@@ -136,6 +141,41 @@ export class AegisStore {
     return row ?? null;
   }
 
+  getEndUserByEmailNormalized(emailNormalized: string): EndUserRecord | null {
+    const row = this.db
+      .prepare('SELECT * FROM end_users WHERE lower(email) = lower(?) LIMIT 1')
+      .get(emailNormalized) as EndUserRecord | undefined;
+    return row ?? null;
+  }
+
+  createEndUserForAuth(email: string, displayName?: string | null): EndUserRecord {
+    const id = randomId('usr');
+    const now = nowIso();
+    const name = String(displayName ?? '').trim() || email.split('@')[0] || 'User';
+    this.db
+      .prepare('INSERT INTO end_users (id, email, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, email.trim().toLowerCase(), name, 'active', now);
+    return this.getEndUserById(id)!;
+  }
+
+  getTeamById(teamId: string): TeamRecord | null {
+    const row = this.db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as TeamRecord | undefined;
+    return row ?? null;
+  }
+
+  getTeamMemberByUserId(userId: string): TeamMemberRecord | null {
+    const row = this.db
+      .prepare('SELECT * FROM team_members WHERE user_id = ? ORDER BY datetime(created_at) ASC LIMIT 1')
+      .get(userId) as TeamMemberRecord | undefined;
+    return row ?? null;
+  }
+
+  listActiveAdminsForTeam(teamId: string): TeamMemberRecord[] {
+    return this.db
+      .prepare("SELECT * FROM team_members WHERE team_id = ? AND role = 'admin' AND status = 'active' ORDER BY datetime(created_at) ASC")
+      .all(teamId) as TeamMemberRecord[];
+  }
+
   resolveApprovalMagicLinkContext(rawToken: string): { userId: string; actionId: string } | null {
     const resolved = this.resolveMagicLink(rawToken);
     if (!resolved || resolved.purpose !== 'approval' || !resolved.actionId) return null;
@@ -230,15 +270,19 @@ export class AegisStore {
       this.db
         .prepare(
           `INSERT INTO actions (
-            id, agent_id, end_user_id, idempotency_key, action_type, status, status_reason,
+            id, agent_id, end_user_id, team_id, requested_by_user_id, approval_target_user_id, approval_policy, idempotency_key, action_type, status, status_reason,
             amount, currency, recipient_name, description, payment_rail, payment_method_preference, recipient_reference,
             callback_url, expires_at, metadata_json, approved_at, denied_at, terminal_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           actionId,
           opts.agentId,
           opts.input.end_user_id,
+          (((opts.input.metadata ?? {}) as Record<string, unknown>).team_id as string | undefined) ?? null,
+          opts.input.end_user_id,
+          opts.input.end_user_id,
+          'self',
           opts.input.idempotency_key,
           'payment',
           'received',
@@ -310,6 +354,16 @@ export class AegisStore {
     const rows = this.db
       .prepare('SELECT * FROM actions WHERE end_user_id = ? ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?')
       .all(userId, limit, offset) as ActionRecord[];
+    return { rows, total };
+  }
+
+  listActionsByTeam(teamId: string, limit = 50, offset = 0): { rows: ActionRecord[]; total: number } {
+    const total = (this.db
+      .prepare('SELECT COUNT(1) as c FROM actions WHERE team_id = ?')
+      .get(teamId) as { c: number }).c;
+    const rows = this.db
+      .prepare('SELECT * FROM actions WHERE team_id = ? ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?')
+      .all(teamId, limit, offset) as ActionRecord[];
     return { rows, total };
   }
 
@@ -451,7 +505,7 @@ export class AegisStore {
     return row ?? null;
   }
 
-  createMagicLink(userId: string, actionId: string | null, purpose: 'approval' | 'login', expiresAt: string): { magicLinkId: string; token: string } {
+  createMagicLink(userId: string, actionId: string | null, purpose: 'approval' | 'login' | 'password_reset', expiresAt: string): { magicLinkId: string; token: string } {
     const token = randomId('mltok');
     const tokenHash = sha256(token);
     const magicLinkId = randomId('mlink');
@@ -596,6 +650,173 @@ export class AegisStore {
     return this.db
       .prepare('SELECT * FROM email_outbox ORDER BY datetime(created_at) DESC LIMIT ?')
       .all(limit) as Array<Record<string, unknown>>;
+  }
+
+  createAppSession(userId: string): { sessionId: string; token: string } {
+    const token = randomToken(32);
+    const tokenHash = sha256(token);
+    const sessionId = randomId('sess');
+    const now = nowIso();
+    const expiresAt = addMinutesIso(nowIso(), 12 * 60);
+    this.db
+      .prepare('INSERT INTO app_sessions (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(sessionId, userId, tokenHash, expiresAt, now);
+    return { sessionId, token };
+  }
+
+  createUserCredential(userId: string, emailNormalized: string, passwordHash: string, passwordAlgo = 'scrypt_v1'): UserCredentialRecord {
+    const id = randomId('cred');
+    const now = nowIso();
+    this.db
+      .prepare(
+        'INSERT INTO user_credentials (id, user_id, email_normalized, password_hash, password_algo, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(id, userId, emailNormalized, passwordHash, passwordAlgo, now, now, null);
+    return this.db.prepare('SELECT * FROM user_credentials WHERE id = ?').get(id) as UserCredentialRecord;
+  }
+
+  getUserCredentialByEmail(emailNormalized: string): UserCredentialRecord | null {
+    const row = this.db
+      .prepare('SELECT * FROM user_credentials WHERE email_normalized = ?')
+      .get(emailNormalized) as UserCredentialRecord | undefined;
+    return row ?? null;
+  }
+
+  touchUserCredentialLogin(credentialId: string): void {
+    const now = nowIso();
+    this.db.prepare('UPDATE user_credentials SET last_login_at = ?, updated_at = ? WHERE id = ?').run(now, now, credentialId);
+  }
+
+  updateUserCredentialPasswordByEmail(emailNormalized: string, passwordHash: string, passwordAlgo = 'scrypt_v1'): boolean {
+    const now = nowIso();
+    const result = this.db
+      .prepare('UPDATE user_credentials SET password_hash = ?, password_algo = ?, updated_at = ? WHERE email_normalized = ?')
+      .run(passwordHash, passwordAlgo, now, emailNormalized);
+    return result.changes > 0;
+  }
+
+  createOauthState(provider: 'google' | 'github', stateRaw: string, nextPath: string, expiresAt: string): OauthStateRecord {
+    const id = randomId('oauthst');
+    const now = nowIso();
+    this.db
+      .prepare(
+        'INSERT INTO oauth_states (id, provider, state_hash, next_path, expires_at, created_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(id, provider, sha256(stateRaw), nextPath, expiresAt, now, null);
+    return this.db.prepare('SELECT * FROM oauth_states WHERE id = ?').get(id) as OauthStateRecord;
+  }
+
+  consumeOauthState(provider: 'google' | 'github', stateRaw: string): OauthStateRecord | null {
+    const stateHash = sha256(stateRaw);
+    const row = this.db
+      .prepare('SELECT * FROM oauth_states WHERE provider = ? AND state_hash = ?')
+      .get(provider, stateHash) as OauthStateRecord | undefined;
+    if (!row) return null;
+    if (row.consumed_at) return null;
+    this.db.prepare('UPDATE oauth_states SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL').run(nowIso(), row.id);
+    const next = this.db.prepare('SELECT * FROM oauth_states WHERE id = ?').get(row.id) as OauthStateRecord;
+    return next;
+  }
+
+  upsertOauthIdentity(opts: {
+    userId: string;
+    provider: 'google' | 'github';
+    providerUserId: string;
+    emailNormalized: string;
+    emailVerified: boolean;
+    profile: Record<string, unknown>;
+  }): OauthIdentityRecord {
+    const now = nowIso();
+    const existing = this.db
+      .prepare('SELECT id FROM oauth_identities WHERE provider = ? AND provider_user_id = ?')
+      .get(opts.provider, opts.providerUserId) as { id: string } | undefined;
+    if (existing) {
+      this.db
+        .prepare(
+          `UPDATE oauth_identities SET user_id = ?, email_normalized = ?, email_verified = ?, profile_json = ?, updated_at = ? WHERE id = ?`
+        )
+        .run(opts.userId, opts.emailNormalized, opts.emailVerified ? 1 : 0, JSON.stringify(opts.profile ?? {}), now, existing.id);
+      return this.db.prepare('SELECT * FROM oauth_identities WHERE id = ?').get(existing.id) as OauthIdentityRecord;
+    }
+    const id = randomId('oid');
+    this.db
+      .prepare(
+        `INSERT INTO oauth_identities
+        (id, user_id, provider, provider_user_id, email_normalized, email_verified, profile_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        opts.userId,
+        opts.provider,
+        opts.providerUserId,
+        opts.emailNormalized,
+        opts.emailVerified ? 1 : 0,
+        JSON.stringify(opts.profile ?? {}),
+        now,
+        now
+      );
+    return this.db.prepare('SELECT * FROM oauth_identities WHERE id = ?').get(id) as OauthIdentityRecord;
+  }
+
+  verifyAppSession(token: string): { userId: string } | null {
+    const tokenHash = sha256(token);
+    const row = this.db
+      .prepare('SELECT user_id, expires_at FROM app_sessions WHERE token_hash = ?')
+      .get(tokenHash) as { user_id: string; expires_at: string } | undefined;
+    if (!row) return null;
+    if (new Date(row.expires_at).getTime() < Date.now()) return null;
+    return { userId: row.user_id };
+  }
+
+  deleteAppSessionByToken(token: string): boolean {
+    const tokenHash = sha256(token);
+    const r = this.db.prepare('DELETE FROM app_sessions WHERE token_hash = ?').run(tokenHash);
+    return r.changes > 0;
+  }
+
+  listPlans(): Array<{ id: string; name: string; slug: string; price_cents: number; interval: string; features_json: string }> {
+    return this.db.prepare('SELECT id, name, slug, price_cents, interval, features_json FROM plans ORDER BY price_cents ASC').all() as any[];
+  }
+
+  getUserPlan(userId: string): { plan_id: string; plan: { id: string; name: string; slug: string; price_cents: number; features_json: string } } | null {
+    const row = this.db
+      .prepare('SELECT plan_id FROM user_plans WHERE user_id = ? AND status = ?')
+      .get(userId, 'active') as { plan_id: string } | undefined;
+    if (!row) return null;
+    const plan = this.db.prepare('SELECT id, name, slug, price_cents, features_json FROM plans WHERE id = ?').get(row.plan_id) as any;
+    if (!plan) return null;
+    return { plan_id: row.plan_id, plan };
+  }
+
+  createAgentForUser(ownerUserId: string, name: string): { agent: AgentRecord; apiKey: string } {
+    const apiKey = `aegis_${randomToken(24)}`;
+    const apiKeyHash = sha256(apiKey);
+    const webhookSecret = `whsec_${randomToken(16)}`;
+    const id = randomId('agt');
+    const now = nowIso();
+    this.db
+      .prepare(
+        'INSERT INTO agents (id, name, api_key_hash, webhook_secret, status, created_at, owner_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(id, name, apiKeyHash, webhookSecret, 'active', now, ownerUserId);
+    this.db.prepare('INSERT INTO agent_user_links (agent_id, end_user_id, created_at) VALUES (?, ?, ?)').run(id, ownerUserId, now);
+    const agent = this.db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRecord;
+    return { agent, apiKey };
+  }
+
+  listAgentsByOwner(ownerUserId: string): AgentRecord[] {
+    return this.db
+      .prepare('SELECT * FROM agents WHERE owner_user_id = ? ORDER BY created_at DESC')
+      .all(ownerUserId) as AgentRecord[];
+  }
+
+  deleteAgentIfOwned(agentId: string, ownerUserId: string): boolean {
+    const row = this.db.prepare('SELECT id FROM agents WHERE id = ? AND owner_user_id = ?').get(agentId, ownerUserId);
+    if (!row) return false;
+    this.db.prepare('DELETE FROM agent_user_links WHERE agent_id = ?').run(agentId);
+    this.db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
+    return true;
   }
 
   appendAuditLog(actionId: string | null, eventType: string, actorType: string, actorId: string | null, payload: Record<string, unknown>): void {
@@ -862,6 +1083,10 @@ export class AegisStore {
       status: action.status,
       action_type: 'payment',
       end_user_id: action.end_user_id,
+      team_id: action.team_id,
+      requested_by_user_id: action.requested_by_user_id,
+      approval_target_user_id: action.approval_target_user_id,
+      approval_policy: action.approval_policy,
       details: {
         amount: action.amount,
         currency: action.currency,
@@ -915,6 +1140,10 @@ export class AegisStore {
         status: action.status,
         action_type: 'payment' as const,
         end_user_id: action.end_user_id,
+        team_id: action.team_id,
+        requested_by_user_id: action.requested_by_user_id,
+        approval_target_user_id: action.approval_target_user_id,
+        approval_policy: action.approval_policy,
         details: {
           amount: action.amount,
           currency: action.currency,

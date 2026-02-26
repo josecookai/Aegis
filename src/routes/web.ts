@@ -5,7 +5,7 @@ import { DomainError, AegisService } from '../services/aegis';
 import { AdminAuthService } from '../services/adminAuth';
 import { SandboxFaultService, FaultScope, SandboxPresetName } from '../services/sandboxFaults';
 import { WebAuthnService } from '../services/webauthn';
-import { renderActionAuditPage, renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage, renderAddCardPage } from '../views';
+import { renderActionAuditPage, renderAdminLoginPage, renderAdminPage, renderApprovalPage, renderApprovalResultPage, renderEmailOutboxPage, renderHomePage, renderPasskeyDevPage, renderWebhookDevPage, renderSandboxFaultsPage, renderAddCardPage, renderMemberPaymentMethodsPage, renderTeamHistoryAdminPage, renderDashboardPage, renderApiKeysPage, renderEndUserAuthPage } from '../views';
 import { DecisionSource } from '../types';
 
 export function createWebRouter(service: AegisService, webauthn: WebAuthnService, adminAuth: AdminAuthService, sandboxFaults: SandboxFaultService): Router {
@@ -40,6 +40,28 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
 
   router.get('/', (_req, res) => {
     res.type('html').send(renderHomePage());
+  });
+
+  router.get('/auth', (req, res) => {
+    const mode = String(req.query.mode ?? 'signup') === 'signin' ? 'signin' : 'signup';
+    const nextPath = sanitizeNextPath(String(req.query.next ?? '/dashboard'));
+    const errorCode = typeof req.query.error === 'string' ? req.query.error : undefined;
+    const config = service.getConfig();
+    const sessionToken = String(req.cookies?.[config.appSessionCookieName] ?? '').trim();
+    const session = sessionToken ? service.getStore().verifyAppSession(sessionToken) : null;
+    const endUser = session ? service.getStore().getEndUserById(session.userId) : null;
+    res.type('html').send(
+      renderEndUserAuthPage({
+        mode,
+        nextPath,
+        errorCode,
+        user: endUser ? { id: endUser.id, email: endUser.email, display_name: endUser.display_name } : null,
+        providers: {
+          googleEnabled: Boolean(config.googleClientId && config.googleClientSecret),
+          githubEnabled: Boolean(config.githubClientId && config.githubClientSecret),
+        },
+      })
+    );
   });
 
   router.get('/healthz', (_req, res) => {
@@ -132,6 +154,11 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     res.type('html').send(renderAdminPage(service.getAdminDashboardData()));
   });
 
+  router.get('/admin/team-history', (req, res) => {
+    const defaultUserId = String(req.query.user_id ?? 'usr_demo').trim();
+    res.type('html').send(renderTeamHistoryAdminPage({ defaultUserId }));
+  });
+
   router.get('/dev/emails', (_req, res) => {
     res.type('html').send(renderEmailOutboxPage(service.getStore().listEmailOutbox(100)));
   });
@@ -192,6 +219,68 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
         paymentMethods,
       })
     );
+  });
+
+  router.get('/dashboard', (req, res) => {
+    const portalUser = resolvePortalUser(req, service);
+    if (!portalUser) {
+      const next = encodeURIComponent(`/dashboard${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+      return res.redirect(`/auth?mode=signin&next=${next}`);
+    }
+    const userId = portalUser.id;
+    const showUserSwitcher = typeof req.query.user_id === 'string' && String(req.query.user_id).trim().length > 0;
+    const store = service.getStore();
+    const endUser = store.getEndUserById(userId);
+    const agents = store.listAgents().map((a) => ({ id: a.id, name: a.name, status: a.status }));
+    const paymentMethodsCount = store.listPaymentMethodsForUser(userId).filter((m) => m.rail === 'card').length;
+    res.type('html').send(
+      renderDashboardPage({
+        userId,
+        userDisplay: endUser?.display_name ?? endUser?.email ?? userId,
+        planLabel: 'Demo',
+        agents,
+        paymentMethodsCount,
+        showUserSwitcher,
+      })
+    );
+  });
+
+  router.get('/settings/payment-methods', (req, res) => {
+    const portalUser = resolvePortalUser(req, service);
+    if (!portalUser) {
+      const next = encodeURIComponent(`/settings/payment-methods${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+      return res.redirect(`/auth?mode=signin&next=${next}`);
+    }
+    const userId = portalUser.id;
+    const config = service.getConfig();
+    const baseUrl = config.baseUrl ?? `${req.protocol}://${req.get('host')}`;
+    const sessionMode = !(typeof req.query.user_id === 'string' && String(req.query.user_id).trim());
+    res.type('html').send(
+      renderMemberPaymentMethodsPage({
+        publishableKey: config.stripePublishableKey,
+        baseUrl,
+        userId,
+        sessionMode,
+      })
+    );
+  });
+
+  router.get('/settings/api-keys', (req, res) => {
+    const portalUser = resolvePortalUser(req, service);
+    if (!portalUser) {
+      const next = encodeURIComponent(`/settings/api-keys${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+      return res.redirect(`/auth?mode=signin&next=${next}`);
+    }
+    const userId = portalUser.id;
+    const showUserSwitcher = typeof req.query.user_id === 'string' && String(req.query.user_id).trim().length > 0;
+    const store = service.getStore();
+    const agents = store.listAgents().map((a) => ({
+      id: a.id,
+      name: a.name,
+      status: a.status,
+      displayKey: a.id === 'agt_demo' ? 'aegis_demo_agent_key' : undefined,
+    }));
+    res.type('html').send(renderApiKeysPage({ userId, agents, showUserSwitcher }));
   });
 
   router.get('/dev/sandbox', (req, res) => {
@@ -315,4 +404,20 @@ function sanitizeNextPath(input: string): string {
   if (!input.startsWith('/')) return '/admin';
   if (input.startsWith('//')) return '/admin';
   return input;
+}
+
+function resolvePortalUser(req: any, service: AegisService): { id: string } | null {
+  const qUserId = String(req.query?.user_id ?? '').trim();
+  if (qUserId) {
+    const qUser = service.getStore().getEndUserById(qUserId);
+    if (qUser && qUser.status === 'active') return { id: qUserId };
+  }
+  const appCookieName = service.getConfig().appSessionCookieName;
+  const sessionToken = String(req.cookies?.[appCookieName] ?? '').trim();
+  if (!sessionToken) return null;
+  const sess = service.getStore().verifyAppSession(sessionToken);
+  if (!sess) return null;
+  const endUser = service.getStore().getEndUserById(sess.userId);
+  if (!endUser || endUser.status !== 'active') return null;
+  return { id: endUser.id };
 }

@@ -72,12 +72,61 @@ export interface AgentRecord {
   webhook_secret: string;
   status: 'active' | 'disabled';
   created_at: string;
+  owner_user_id?: string | null;
 }
 
 export interface EndUserRecord {
   id: string;
   email: string;
   display_name: string;
+  status: 'active' | 'disabled';
+  created_at: string;
+}
+
+export interface UserCredentialRecord {
+  id: string;
+  user_id: string;
+  email_normalized: string;
+  password_hash: string;
+  password_algo: string;
+  created_at: string;
+  updated_at: string;
+  last_login_at: string | null;
+}
+
+export interface OauthIdentityRecord {
+  id: string;
+  user_id: string;
+  provider: 'google' | 'github';
+  provider_user_id: string;
+  email_normalized: string;
+  email_verified: number;
+  profile_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OauthStateRecord {
+  id: string;
+  provider: 'google' | 'github';
+  state_hash: string;
+  next_path: string;
+  expires_at: string;
+  created_at: string;
+  consumed_at: string | null;
+}
+
+export interface TeamRecord {
+  id: string;
+  name: string;
+  status: 'active' | 'disabled';
+  created_at: string;
+}
+
+export interface TeamMemberRecord {
+  team_id: string;
+  user_id: string;
+  role: 'admin' | 'member';
   status: 'active' | 'disabled';
   created_at: string;
 }
@@ -97,6 +146,10 @@ export interface ActionRecord {
   id: string;
   agent_id: string;
   end_user_id: string;
+  team_id: string | null;
+  requested_by_user_id: string | null;
+  approval_target_user_id: string | null;
+  approval_policy: string | null;
   idempotency_key: string;
   action_type: 'payment';
   status: ActionStatus;
@@ -123,6 +176,10 @@ export interface ActionApiResponse {
   status: ActionStatus;
   action_type: 'payment';
   end_user_id: string;
+  team_id?: string | null;
+  requested_by_user_id?: string | null;
+  approval_target_user_id?: string | null;
+  approval_policy?: string | null;
   details: ActionDetailsInput;
   callback_url: string;
   expires_at: string;

@@ -53,6 +53,23 @@ cd app && npm install && npx expo start --ios
 
 **验证：** `http://localhost:3000/healthz` 返回 `ok`。测试数据：`API_KEY=aegis_demo_agent_key`，`USER_ID=usr_demo`。
 
+### End-user 登录/注册（新增）
+
+- 入口：`/auth`
+- 支持：Google / GitHub / Email + Password（三种模式）
+- 支持：Password reset（请求链接 + 重置确认，最小闭环）
+- 默认：`/auth?mode=signup`
+- 成功后创建 `app_session`（终端用户会话）
+
+用户门户页面（`/dashboard`、`/settings/payment-methods`、`/settings/api-keys`）现已优先使用 `app_session`，无需 `?user_id=`；仍兼容 query 参数用于内部联调。
+
+本地仅测试 Email+Password 时无需配置 OAuth；Google/GitHub 未配置会在 UI 中显示为不可用。
+
+OAuth 本地回调地址（开发）：
+
+- Google：`http://localhost:3000/auth/oauth/google/callback`
+- GitHub：`http://localhost:3000/auth/oauth/github/callback`
+
 ---
 
 ## 1. 开发进度
@@ -82,6 +99,18 @@ npm test
 
 **当前：** 29 个测试全绿。E2E 验收见 [docs/E2E-Verification-Checklist.md](docs/E2E-Verification-Checklist.md)。
 
+认证功能单测（新增）：
+
+```bash
+npx vitest run tests/auth.test.ts
+```
+
+Auth smoke E2E（新增）：
+
+```bash
+npm run e2e:auth
+```
+
 ---
 
 ## 3. 可以做什么
@@ -95,6 +124,13 @@ npm test
 | **Stripe 真实扣款** | 配置 `STRIPE_SECRET_KEY` 后，card 通道走 Stripe PaymentIntent |
 | **Webhook 回调** | HMAC 签名、重试队列、replay UI |
 | **Dev 工具** | Sandbox 故障注入、Webhook 重放、Passkey 注册、邮件 outbox |
+
+---
+
+## Team Pilot Docs
+
+- 团队试点（10人、自批、自有信用卡）结构化文档入口：[`docs/team-pilot/README.md`](docs/team-pilot/README.md)
+- 面向 AI agent 的调用规范：[`docs/team-pilot/AI_AGENT_USAGE.md`](docs/team-pilot/AI_AGENT_USAGE.md)
 
 ---
 
@@ -151,6 +187,7 @@ npm test
 | **OpenClaw 配置** | Setup | MCP URL、环境变量、验证 tools | [docs/OpenClaw-Setup.md](docs/OpenClaw-Setup.md) |
 | **Manus 接入** | Setup | REST 直连 + MCP | [docs/Manus-Setup.md](docs/Manus-Setup.md) |
 | **E2E 验收 Checklist** | Verification | 验收结果、Peer Review、Bug 列表 | [docs/E2E-Verification-Checklist.md](docs/E2E-Verification-Checklist.md) |
+| **测试覆盖率报告** | Coverage | 各模块覆盖率、缺口、建议 | [docs/Test-Coverage-Report.md](docs/Test-Coverage-Report.md) |
 | **术语表** | Glossary | 统一术语定义，按字母和主题分类 | [Aegis-Glossary.md](Aegis-Glossary.md) |
 
 ---

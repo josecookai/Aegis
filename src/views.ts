@@ -103,6 +103,7 @@ export function renderHomePage(): string {
           Aegis
         </a>
         <div class="nav-links">
+          <a href="/dashboard">Dashboard</a>
           <a href="/docs/openapi.yaml">API Docs</a>
           <a href="/admin">Demo Console</a>
           <a href="https://github.com/josecookai/Aegis" target="_blank" rel="noopener">GitHub</a>
@@ -634,6 +635,7 @@ export function renderAdminPage(data: Record<string, unknown>): string {
           <a href="/dev/webhooks">Webhook Deliveries UI</a>
           <a href="/dev/sandbox">Sandbox Fault Injection</a>
           <a href="/dev/add-card">添加信用卡</a>
+          <a href="/admin/team-history">团队历史（只读）</a>
           <form method="post" action="/logout" style="display:inline">
             <button class="ghost" type="submit">Logout</button>
           </form>
@@ -664,6 +666,151 @@ export function renderAdminPage(data: Record<string, unknown>): string {
         </table>
       </div>
     </div>`
+  );
+}
+
+export function renderTeamHistoryAdminPage(params: { defaultUserId?: string }): string {
+  const defaultUserId = params.defaultUserId?.trim() || 'usr_demo';
+  return layout(
+    'Admin Team History (Read-only)',
+    `
+    <div class="grid">
+      <div class="card">
+        <h1>团队历史（管理员只读）</h1>
+        <p>通过 <code>GET /api/app/admin/history</code> 查看团队 action 历史。该页面不提供审批按钮。</p>
+        <form id="teamHistoryForm" class="actions" style="margin-top:12px;">
+          <div style="min-width:260px; flex:1;">
+            <label for="userId">管理员 user_id</label>
+            <input id="userId" name="user_id" value="${escapeHtml(defaultUserId)}" placeholder="例如 usr_admin_demo" />
+          </div>
+          <div style="min-width:120px;">
+            <label for="limit">limit</label>
+            <input id="limit" name="limit" type="number" min="1" max="200" value="50" />
+          </div>
+          <div style="padding-top:30px;">
+            <button class="primary" type="submit">加载历史</button>
+          </div>
+          <div style="padding-top:30px;">
+            <a href="/admin">返回 Admin</a>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="actions" style="justify-content:space-between;">
+          <div>
+            <h2 style="margin-bottom:4px;">结果</h2>
+            <p class="small" id="summary">未加载</p>
+          </div>
+          <span class="badge">Read-only</span>
+        </div>
+        <p id="errorBox" style="display:none; color: var(--danger); background:#fff2f0; border:1px solid #f3c8c2; border-radius:12px; padding:10px 12px;"></p>
+        <div style="overflow:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>action_id</th>
+                <th>requested_by_user_id</th>
+                <th>Amount</th>
+                <th>Recipient</th>
+                <th>Status</th>
+                <th>Created At</th>
+              </tr>
+            </thead>
+            <tbody id="rows">
+              <tr><td colspan="6" class="small">请先输入管理员 user_id 并加载</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const form = document.getElementById('teamHistoryForm');
+        const userIdEl = document.getElementById('userId');
+        const limitEl = document.getElementById('limit');
+        const rowsEl = document.getElementById('rows');
+        const summaryEl = document.getElementById('summary');
+        const errorBox = document.getElementById('errorBox');
+
+        function esc(v) {
+          return String(v ?? '').replace(/[&<>\"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;' }[c] || c));
+        }
+
+        function showError(msg) {
+          errorBox.style.display = 'block';
+          errorBox.textContent = msg;
+        }
+
+        function clearError() {
+          errorBox.style.display = 'none';
+          errorBox.textContent = '';
+        }
+
+        async function loadHistory() {
+          const userId = (userIdEl.value || '').trim();
+          const limit = Math.max(1, Math.min(200, Number(limitEl.value) || 50));
+          if (!userId) {
+            showError('请输入管理员 user_id');
+            return;
+          }
+          clearError();
+          summaryEl.textContent = '加载中...';
+          rowsEl.innerHTML = '<tr><td colspan="6" class="small">Loading...</td></tr>';
+          try {
+            const url = '/api/app/admin/history?user_id=' + encodeURIComponent(userId) + '&limit=' + encodeURIComponent(String(limit));
+            const res = await fetch(url);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              const msg = data.message || data.error || data.code || ('HTTP ' + res.status);
+              showError(String(msg));
+              summaryEl.textContent = '加载失败（可能不是管理员或 user_id 无效）';
+              rowsEl.innerHTML = '<tr><td colspan="6" class="small">无数据</td></tr>';
+              return;
+            }
+            const items = Array.isArray(data.items) ? data.items : [];
+            const teamId = data.team_id ? String(data.team_id) : '-';
+            summaryEl.textContent = 'team_id=' + teamId + ' · total=' + String(data.total ?? items.length) + ' · 当前返回=' + items.length;
+            if (!items.length) {
+              rowsEl.innerHTML = '<tr><td colspan="6" class="small">暂无历史记录</td></tr>';
+              return;
+            }
+            rowsEl.innerHTML = items.map((item) => {
+              const details = item && typeof item.details === 'object' ? item.details : {};
+              const amount = esc((details && details.amount) || '');
+              const currency = esc((details && details.currency) || '');
+              const recipient = esc((details && details.recipient_name) || '');
+              const status = esc(item.status || '');
+              return '<tr>'
+                + '<td><code>' + esc(item.action_id || '') + '</code></td>'
+                + '<td>' + esc(item.requested_by_user_id || '') + '</td>'
+                + '<td>' + amount + ' ' + currency + '</td>'
+                + '<td>' + recipient + '</td>'
+                + '<td><span class="status ' + status + '">' + status + '</span></td>'
+                + '<td>' + esc(item.created_at || '') + '</td>'
+                + '</tr>';
+            }).join('');
+          } catch (err) {
+            showError(err && err.message ? err.message : String(err));
+            summaryEl.textContent = '请求异常';
+            rowsEl.innerHTML = '<tr><td colspan="6" class="small">请求异常</td></tr>';
+          }
+        }
+
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          void loadHistory();
+          const q = new URLSearchParams(window.location.search);
+          q.set('user_id', String(userIdEl.value || '').trim());
+          q.set('limit', String(Math.max(1, Math.min(200, Number(limitEl.value) || 50))));
+          history.replaceState(null, '', '/admin/team-history?' + q.toString());
+        });
+
+        if ((userIdEl.value || '').trim()) void loadHistory();
+      })();
+    </script>
+    `
   );
 }
 
@@ -1001,6 +1148,146 @@ export interface PaymentMethodDisplay {
   created_at: string;
 }
 
+export function renderDashboardPage(params: {
+  userId: string;
+  userDisplay?: string;
+  planLabel?: string;
+  agents: Array<{ id: string; name: string; status: string }>;
+  paymentMethodsCount?: number;
+  showUserSwitcher?: boolean;
+}): string {
+  const plan = params.planLabel ?? 'Demo';
+  const agentsRows = params.agents
+    .map(
+      (a) =>
+        `<tr><td>${escapeHtml(a.name)}</td><td><code>${escapeHtml(a.id)}</code></td><td><span class="status ${a.status}">${escapeHtml(a.status)}</span></td></tr>`
+    )
+    .join('');
+  const pmCount = params.paymentMethodsCount ?? 0;
+  return layout(
+    'Dashboard — Aegis',
+    `
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo"><span></span>Aegis</a>
+        <div class="nav-links">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings/payment-methods">支付方式</a>
+          <a href="/settings/api-keys">API Keys</a>
+          <a href="/admin">Admin</a>
+        </div>
+      </div>
+    </nav>
+    <div class="grid" style="gap:24px">
+      <div class="card">
+        <h1>Dashboard</h1>
+        <p class="muted">当前用户与概览</p>
+        ${
+          params.showUserSwitcher
+            ? `<form method="get" action="/dashboard" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px;">
+                 <label for="user_id">user_id</label>
+                 <input id="user_id" name="user_id" value="${escapeHtml(params.userId)}" placeholder="usr_demo" />
+                 <button type="submit" class="btn btn-secondary">切换用户</button>
+               </form>
+               <p class="small">当前为联调模式（query 参数切换用户）。</p>`
+            : ''
+        }
+        <div class="grid cols-2" style="gap:16px;">
+          <div class="card" style="padding:16px; background:var(--accent-muted); border-color:#bfdbfe;">
+            <div class="small">当前用户</div>
+            <strong style="font-size:18px;">${escapeHtml(params.userDisplay ?? params.userId)}</strong>
+          </div>
+          <div class="card" style="padding:16px; background:#f8fafc; border-color:var(--line);">
+            <div class="small">计划</div>
+            <strong style="font-size:18px;">${escapeHtml(plan)}</strong>
+          </div>
+          <div class="card" style="padding:16px; background:#f8fafc; border-color:var(--line);">
+            <div class="small">已绑定支付方式</div>
+            <strong style="font-size:18px;">${pmCount} 张卡</strong>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>已关联 Agent</h2>
+        <p class="small muted">可代表您发起支付请求的 Agent 列表</p>
+        ${agentsRows ? `<table><thead><tr><th>名称</th><th>ID</th><th>状态</th></tr></thead><tbody>${agentsRows}</tbody></table>` : '<p class="muted">暂无关联 Agent</p>'}
+      </div>
+      <div class="actions">
+        <a href="/settings/payment-methods" class="btn btn-primary">管理支付方式</a>
+        <a href="/settings/api-keys" class="btn btn-secondary">API Key 管理</a>
+      </div>
+    </div>`
+  );
+}
+
+export function renderApiKeysPage(params: {
+  userId: string;
+  agents: Array<{ id: string; name: string; status: string; displayKey?: string }>;
+  showUserSwitcher?: boolean;
+}): string {
+  const demoKey = params.agents.find((a) => a.id === 'agt_demo')?.displayKey ?? 'aegis_demo_agent_key';
+  const agentsRows = params.agents
+    .map(
+      (a) => {
+        const keyDisplay = a.displayKey ?? a.id + ' (key hidden)';
+        const copyBtn = a.displayKey ? `<button type="button" class="ghost copy-btn" data-copy="${escapeHtml(a.displayKey)}">复制</button>` : '-';
+        return `<tr>
+          <td>${escapeHtml(a.name)}</td>
+          <td><code>${escapeHtml(keyDisplay)}</code></td>
+          <td><span class="status ${a.status}">${escapeHtml(a.status)}</span></td>
+          <td>${copyBtn}</td>
+        </tr>`;
+      }
+    )
+    .join('');
+  return layout(
+    'API Key 管理 — Aegis',
+    `
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo"><span></span>Aegis</a>
+        <div class="nav-links">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings/payment-methods">支付方式</a>
+          <a href="/settings/api-keys">API Keys</a>
+        </div>
+      </div>
+    </nav>
+    <div class="grid" style="gap:24px">
+      <div class="card">
+        <h1>API Key 管理</h1>
+        <p class="muted">用于 Agent 调用 Aegis API 的密钥。Demo 环境展示示例 key。</p>
+        ${
+          params.showUserSwitcher
+            ? `<form method="get" action="/settings/api-keys" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                 <label for="user_id">user_id</label>
+                 <input id="user_id" name="user_id" value="${escapeHtml(params.userId)}" placeholder="usr_demo" />
+                 <button type="submit" class="btn btn-secondary">切换用户</button>
+               </form>
+               <p class="small">当前为联调模式（query 参数切换用户）。</p>`
+            : ''
+        }
+      </div>
+      <div class="card">
+        <h2>已注册 Agent</h2>
+        ${agentsRows ? `<table><thead><tr><th>名称</th><th>API Key</th><th>状态</th><th>操作</th></tr></thead><tbody>${agentsRows}</tbody></table>` : '<p class="muted">暂无 Agent</p>'}
+        <p class="small muted" style="margin-top:12px;">生成新 Key 需后端支持，当前 Demo 使用 <code>${escapeHtml(demoKey)}</code>。</p>
+      </div>
+      <p><a href="/dashboard">← 返回 Dashboard</a></p>
+    </div>
+    <script>
+    document.querySelectorAll('.copy-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const key = btn.dataset.copy;
+        if (key && navigator.clipboard) {
+          navigator.clipboard.writeText(key).then(function() { btn.textContent = '已复制'; });
+        }
+      });
+    });
+    </script>`
+  );
+}
+
 export function renderAddCardPage(params: {
   publishableKey: string | null;
   baseUrl: string;
@@ -1168,5 +1455,444 @@ export function renderAddCardPage(params: {
     </div>
     ${allScripts}
   `
+  );
+}
+
+export function renderMemberPaymentMethodsPage(params: {
+  publishableKey: string | null;
+  baseUrl: string;
+  userId: string;
+  sessionMode?: boolean;
+}): string {
+  const stripeConfigured = Boolean(params.publishableKey);
+  const apiBase = params.baseUrl.replace(/\/$/, '');
+
+  const cardsHtml = `
+    <div class="card">
+      <h2>已保存的信用卡</h2>
+      <div id="cards-list"><p class="muted">加载中...</p></div>
+    </div>`;
+
+  const addFormHtml = stripeConfigured
+    ? `
+    <div class="card">
+      <h2>添加信用卡</h2>
+      <p class="small">使用 Stripe Elements 安全收集卡信息（测试卡可用：4242 4242 4242 4242）。</p>
+      <form id="member-card-form">
+        <div id="card-element" style="padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:#fff; margin-bottom:16px;"></div>
+        <div id="card-errors" style="color:var(--danger); font-size:14px; margin-bottom:12px;"></div>
+        <button type="submit" class="btn btn-primary" id="submit-btn">保存卡片</button>
+      </form>
+    </div>`
+    : `
+    <div class="card">
+      <h2>添加信用卡</h2>
+      <p>请先配置 <code>STRIPE_SECRET_KEY</code> 和 <code>STRIPE_PUBLISHABLE_KEY</code>。</p>
+      <p class="small" id="card-errors" style="color:var(--danger)"></p>
+    </div>`;
+
+  return layout(
+    '支付方式管理 — Aegis',
+    `
+    <nav class="nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo"><span></span>Aegis</a>
+        <div class="nav-links">
+          <a href="/settings/payment-methods">支付方式</a>
+          <a href="/dev/add-card">Dev Add Card</a>
+        </div>
+      </div>
+    </nav>
+    <div class="grid" style="gap:24px">
+      <div class="card">
+        <h1>成员信用卡管理</h1>
+        <p class="muted">默认使用当前登录态（app session）识别成员；仍兼容 <code>?user_id=</code> 供内部联调。</p>
+        <form method="get" action="/settings/payment-methods" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <label for="user_id">user_id（可选）</label>
+          <input id="user_id" name="user_id" value="${escapeHtml(params.sessionMode ? '' : params.userId)}" placeholder="留空则使用当前登录态" />
+          <button type="submit" class="btn btn-secondary">刷新</button>
+        </form>
+        <p class="small">当前用户：<code>${escapeHtml(params.userId)}</code>${params.sessionMode ? '（来自登录态）' : '（来自 query 参数）'}</p>
+        <p id="global-status" class="small muted" aria-live="polite"></p>
+        <p><a href="/dashboard">← 返回 Dashboard</a> · <a href="/">返回首页</a></p>
+      </div>
+      ${addFormHtml}
+      <div id="cards-container">${cardsHtml}</div>
+    </div>
+    ${stripeConfigured ? `<script src="https://js.stripe.com/v3/"></script>` : ''}
+    <script>
+    (function() {
+      const apiBase = ${JSON.stringify(apiBase)};
+      const userId = ${JSON.stringify(params.userId)};
+      const sessionMode = ${JSON.stringify(Boolean(params.sessionMode))};
+      function withUserId(url) {
+        if (sessionMode) return url;
+        return url + (url.includes('?') ? '&' : '?') + 'user_id=' + encodeURIComponent(userId);
+      }
+      const stripePk = ${JSON.stringify(params.publishableKey)};
+      const statusEl = document.getElementById('global-status');
+      const errorEl = document.getElementById('card-errors');
+      const submitBtn = document.getElementById('submit-btn');
+
+      function setStatus(msg, kind) {
+        if (!statusEl) return;
+        statusEl.textContent = msg || '';
+        statusEl.style.color = kind === 'error' ? 'var(--danger)' : '';
+      }
+      function setError(msg) {
+        if (errorEl) errorEl.textContent = msg || '';
+      }
+      async function parseError(res, fallback) {
+        try {
+          const data = await res.json();
+          return data.message || data.error || fallback;
+        } catch {
+          return fallback;
+        }
+      }
+      function refreshPage() {
+        window.location.href = sessionMode ? '/settings/payment-methods' : ('/settings/payment-methods?user_id=' + encodeURIComponent(userId));
+      }
+
+      const cardsListEl = document.getElementById('cards-list');
+
+      function maskCard(pm) {
+        const brand = pm.brand || 'card';
+        const last4 = pm.last4 || '****';
+        return brand + ' **** ' + last4;
+      }
+
+      async function loadCards() {
+        if (!cardsListEl) return;
+        setStatus('加载卡片中...');
+        try {
+          const res = await fetch(withUserId(apiBase + '/api/app/payment-methods'));
+          if (!res.ok) throw new Error(await parseError(res, '加载卡片失败'));
+          const data = await res.json();
+          const methods = Array.isArray(data.payment_methods) ? data.payment_methods : [];
+          if (!methods.length) {
+            cardsListEl.innerHTML = '<p class="muted">暂无卡片。</p>';
+            setStatus('暂无卡片');
+            return;
+          }
+          cardsListEl.innerHTML =
+            '<table><thead><tr><th>卡片</th><th>默认</th><th>操作</th></tr></thead><tbody>' +
+            methods.map(function(pm) {
+              const defaultBadge = pm.is_default ? '<span class="badge">默认</span>' : '-';
+              const defaultBtn = pm.is_default ? '' : '<button type="button" class="ghost set-default-btn" data-id="' + pm.payment_method_id + '">设默认</button>';
+              return '<tr><td>' + maskCard(pm) + '</td><td>' + defaultBadge + '</td><td class="actions">' + defaultBtn + '<button type="button" class="danger delete-btn" data-id="' + pm.payment_method_id + '">删除</button></td></tr>';
+            }).join('') +
+            '</tbody></table>';
+          bindCardActions();
+          setStatus('卡片列表已更新', 'success');
+        } catch (err) {
+          cardsListEl.innerHTML = '<p style="color:var(--danger)">' + ((err && err.message) || '加载卡片失败') + '</p>';
+          setStatus('加载失败', 'error');
+        }
+      }
+
+      function bindCardActions() {
+        document.querySelectorAll('.delete-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+          const id = btn.dataset.id;
+          if (!id || !confirm('确定删除此卡片？')) return;
+          btn.disabled = true;
+          setStatus('删除中...');
+          try {
+            const res = await fetch(withUserId(apiBase + '/api/app/payment-methods/' + id), { method: 'DELETE' });
+            if (!res.ok) throw new Error(await parseError(res, '删除失败'));
+            await loadCards();
+            setStatus('删除成功');
+          } catch (err) {
+            setStatus((err && err.message) || '删除失败', 'error');
+            btn.disabled = false;
+          }
+        });
+        });
+
+        document.querySelectorAll('.set-default-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+          const id = btn.dataset.id;
+          if (!id) return;
+          btn.disabled = true;
+          setStatus('设置默认卡中...');
+          try {
+            const res = await fetch(withUserId(apiBase + '/api/app/payment-methods/' + id + '/default'), { method: 'POST' });
+            if (!res.ok) throw new Error(await parseError(res, '设置失败'));
+            await loadCards();
+            setStatus('默认卡已更新');
+          } catch (err) {
+            setStatus((err && err.message) || '设置失败', 'error');
+            btn.disabled = false;
+          }
+        });
+        });
+      }
+
+      loadCards();
+
+      if (!stripePk || !window.Stripe) return;
+      const stripe = window.Stripe(stripePk);
+      const elements = stripe.elements();
+      const cardElement = elements.create('card', {
+        style: { base: { fontSize: '16px', color: '#32325d' }, invalid: { color: '#fa755a' } }
+      });
+      cardElement.mount('#card-element');
+      cardElement.on('change', function(e) {
+        setError(e.error ? e.error.message : '');
+      });
+
+      const form = document.getElementById('member-card-form');
+      if (!form) return;
+      form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        setError('');
+        setStatus('添加卡片中...');
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = '处理中...';
+        }
+        const result = await stripe.createPaymentMethod({ type: 'card', card: cardElement });
+        if (result.error || !result.paymentMethod) {
+          setStatus('');
+          setError((result.error && result.error.message) || '创建支付方式失败');
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '保存卡片';
+          }
+          return;
+        }
+        try {
+          const res = await fetch(withUserId(apiBase + '/api/app/payment-methods'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payment_method_id: result.paymentMethod.id })
+          });
+          if (!res.ok) throw new Error(await parseError(res, '保存失败'));
+          await loadCards();
+          setStatus('添加成功');
+          cardElement.clear();
+        } catch (err) {
+          setStatus((err && err.message) || '保存失败', 'error');
+          setError((err && err.message) || '保存失败');
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '保存卡片';
+          }
+        }
+      });
+    })();
+    </script>
+  `
+  );
+}
+
+export function renderEndUserAuthPage(params: {
+  mode: 'signin' | 'signup';
+  nextPath: string;
+  errorCode?: string;
+  user: { id: string; email: string; display_name: string } | null;
+  providers: { googleEnabled: boolean; githubEnabled: boolean };
+}): string {
+  const isSignup = params.mode === 'signup';
+  const title = isSignup ? 'Create your account' : 'Welcome back';
+  const subtitle = isSignup ? 'Please fill in details to get started.' : 'Sign in to continue.';
+  const errorMap: Record<string, string> = {
+    INVALID_CREDENTIALS: 'Invalid email or password.',
+    EMAIL_ALREADY_REGISTERED: 'This email is already registered.',
+    WEAK_PASSWORD: 'Password must be at least 8 characters.',
+    INVALID_EMAIL: 'Please enter a valid email address.',
+    OAUTH_PROVIDER_NOT_ENABLED: 'This sign-in provider is not enabled.',
+    OAUTH_INVALID_STATE: 'Login session expired. Please try again.',
+    OAUTH_STATE_EXPIRED: 'Login session expired. Please try again.',
+    OAUTH_TOKEN_EXCHANGE_FAILED: 'Failed to sign in with OAuth provider.',
+    OAUTH_PROFILE_FETCH_FAILED: 'Failed to load account profile from provider.',
+    OAUTH_EMAIL_REQUIRED: 'Provider did not return an email address.',
+    INACTIVE_USER: 'This account is inactive.',
+  };
+  const errorMessage = params.errorCode ? errorMap[params.errorCode] ?? `Error: ${params.errorCode}` : '';
+
+  if (params.user) {
+    return layout(
+      'Aegis Account',
+      `
+      <div class="grid" style="max-width:680px; margin:32px auto;">
+        <div class="card">
+          <h1>Signed in</h1>
+          <p>${escapeHtml(params.user.display_name)} (${escapeHtml(params.user.email)})</p>
+          <p class="small">user_id: <code>${escapeHtml(params.user.id)}</code></p>
+          <div class="actions" style="margin-top:16px;">
+            <a class="btn btn-secondary" href="/dashboard?user_id=${encodeURIComponent(params.user.id)}">Go to Dashboard</a>
+            <a class="btn btn-secondary" href="/settings/payment-methods?user_id=${encodeURIComponent(params.user.id)}">Payment Methods</a>
+            <form method="post" action="/auth/logout" style="display:inline;">
+              <button class="btn btn-primary" type="submit" style="border:none;">Logout</button>
+            </form>
+          </div>
+        </div>
+      </div>`
+    );
+  }
+
+  const oauthBtn = (provider: 'github' | 'google', enabled: boolean) => {
+    const label = provider === 'github' ? 'GitHub' : 'Google';
+    const icon = provider === 'github' ? 'GitHub' : 'Google';
+    const href = `/auth/oauth/${provider}/start?next=${encodeURIComponent(params.nextPath)}`;
+    return enabled
+      ? `<a href="${href}" class="ghost" style="display:flex;align-items:center;justify-content:center;height:44px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--fg);font-weight:600;">${icon}</a>`
+      : `<button type="button" disabled title="${label} not configured" style="display:flex;align-items:center;justify-content:center;height:44px;border:1px solid var(--line);border-radius:12px;background:#f8fafc;color:#94a3b8;font-weight:600;cursor:not-allowed;">${icon}</button>`;
+  };
+
+  return layout(
+    isSignup ? 'Create Account' : 'Sign In',
+    `
+    <div class="grid" style="max-width:420px; margin:24px auto;">
+      <div class="card" style="padding:28px 24px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <h2 style="font-size:1.8rem; margin-bottom:6px;">${escapeHtml(title)}</h2>
+            <p>${escapeHtml(subtitle)}</p>
+          </div>
+          <a href="/" class="small" aria-label="Close">✕</a>
+        </div>
+
+        ${errorMessage ? `<p style="margin:12px 0 0; color:var(--danger); background:#fff2f0; border:1px solid #f3c8c2; border-radius:10px; padding:10px 12px;">${escapeHtml(errorMessage)}</p>` : ''}
+
+        <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:18px;">
+          ${oauthBtn('github', params.providers.githubEnabled)}
+          ${oauthBtn('google', params.providers.googleEnabled)}
+          <a href="/auth?mode=${isSignup ? 'signup' : 'signin'}&next=${encodeURIComponent(params.nextPath)}" class="ghost" style="display:flex;align-items:center;justify-content:center;height:44px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--fg);font-weight:600;">Email</a>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:12px; margin:18px 0 14px;">
+          <div style="height:1px; background:var(--line); flex:1;"></div>
+          <div class="small">or</div>
+          <div style="height:1px; background:var(--line); flex:1;"></div>
+        </div>
+
+        <form method="post" action="${isSignup ? '/auth/email/register' : '/auth/email/login'}" class="grid" style="gap:12px;">
+          <input type="hidden" name="mode" value="${params.mode}" />
+          <input type="hidden" name="next" value="${escapeHtml(params.nextPath)}" />
+          ${isSignup ? `<div><label for="display_name">Name</label><input id="display_name" name="display_name" placeholder="Enter your name" /></div>` : ''}
+          <div>
+            <label for="email">Email address</label>
+            <input id="email" name="email" type="email" autocomplete="email" required placeholder="Enter your email address" />
+          </div>
+          <div>
+            <label for="password">Password</label>
+            <div style="position:relative;">
+              <input id="password" name="password" type="password" autocomplete="${isSignup ? 'new-password' : 'current-password'}" required placeholder="Enter your password" style="padding-right:44px;" />
+              <button type="button" id="togglePwd" class="ghost" style="position:absolute; right:6px; top:6px; padding:6px 8px;">👁</button>
+            </div>
+          </div>
+          ${isSignup
+            ? `<label class="small" style="display:flex; gap:8px; align-items:flex-start; margin:4px 0 0;">
+                <input type="checkbox" name="tos" required style="width:auto; margin-top:2px;" />
+                <span>I agree to the <a href="#" onclick="return false;">Terms of Service</a> and <a href="#" onclick="return false;">Privacy Policy</a></span>
+              </label>`
+            : ''}
+          <button class="primary" type="submit" style="margin-top:2px;">Continue</button>
+        </form>
+
+        ${
+          !isSignup
+            ? `<div style="margin-top:10px;">
+                <button id="forgotPwdBtn" class="ghost" type="button" style="padding:0; background:none;">Forgot password?</button>
+                <form id="forgotPwdForm" class="grid" style="display:none; gap:8px; margin-top:10px;">
+                  <input id="forgotPwdEmail" type="email" placeholder="Enter your email address" />
+                  <button class="ghost" type="submit">Send reset link</button>
+                  <p id="forgotPwdMsg" class="small" style="margin:0;"></p>
+                </form>
+              </div>`
+            : ''
+        }
+
+        <p class="small" style="margin-top:14px;">
+          ${isSignup
+            ? `Already have an account? <a href="/auth?mode=signin&next=${encodeURIComponent(params.nextPath)}">Sign in</a>`
+            : `Don't have an account? <a href="/auth?mode=signup&next=${encodeURIComponent(params.nextPath)}">Create account</a>`}
+        </p>
+        <p class="small">Magic-link login is still available for legacy flows.</p>
+      </div>
+    </div>
+    <script>
+      (function () {
+        const btn = document.getElementById('togglePwd');
+        const input = document.getElementById('password');
+        btn && btn.addEventListener('click', function () {
+          if (!input) return;
+          input.type = input.type === 'password' ? 'text' : 'password';
+        });
+        const forgotBtn = document.getElementById('forgotPwdBtn');
+        const forgotForm = document.getElementById('forgotPwdForm');
+        const forgotEmail = document.getElementById('forgotPwdEmail');
+        const forgotMsg = document.getElementById('forgotPwdMsg');
+        forgotBtn && forgotBtn.addEventListener('click', function () {
+          if (!forgotForm) return;
+          forgotForm.style.display = forgotForm.style.display === 'none' ? 'grid' : 'none';
+        });
+        forgotForm && forgotForm.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          if (!forgotEmail) return;
+          if (forgotMsg) forgotMsg.textContent = 'Sending...';
+          try {
+            const res = await fetch('/auth/password-reset/request', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email: forgotEmail.value || '' }),
+            });
+            const data = await res.json().catch(function() { return {}; });
+            if (forgotMsg) {
+              forgotMsg.textContent = data.message || (res.ok ? 'If an account exists, a password reset link was sent.' : 'Request failed');
+              forgotMsg.style.color = res.ok ? 'var(--muted)' : 'var(--danger)';
+            }
+          } catch (err) {
+            if (forgotMsg) {
+              forgotMsg.textContent = (err && err.message) ? err.message : 'Request failed';
+              forgotMsg.style.color = 'var(--danger)';
+            }
+          }
+        });
+      })();
+    </script>
+    `
+  );
+}
+
+export function renderPasswordResetAuthPage(params: { token?: string; email?: string; error?: string }): string {
+  const errorHtml = params.error
+    ? `<p style="margin:12px 0 0; color:var(--danger); background:#fff2f0; border:1px solid #f3c8c2; border-radius:10px; padding:10px 12px;">${escapeHtml(params.error)}</p>`
+    : '';
+  const formHtml = params.token
+    ? `<form method="post" action="/auth/password-reset/confirm" class="grid" style="gap:12px; margin-top:14px;">
+         <input type="hidden" name="token" value="${escapeHtml(params.token)}" />
+         <div>
+           <label>Email</label>
+           <input type="email" value="${escapeHtml(params.email ?? '')}" disabled />
+         </div>
+         <div>
+           <label for="reset_password">New password</label>
+           <input id="reset_password" type="password" name="password" minlength="8" required placeholder="At least 8 characters" />
+         </div>
+         <button class="primary" type="submit">Reset password</button>
+       </form>`
+    : `<p class="small" style="margin-top:14px;">Please request a new password reset link from the sign-in page.</p>`;
+  return layout(
+    'Reset Password',
+    `
+    <div class="grid" style="max-width:420px; margin:24px auto;">
+      <div class="card" style="padding:28px 24px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <h2 style="font-size:1.8rem; margin-bottom:6px;">Reset password</h2>
+            <p>Set a new password for your account.</p>
+          </div>
+          <a href="/auth?mode=signin" class="small" aria-label="Close">✕</a>
+        </div>
+        ${errorHtml}
+        ${formHtml}
+        <p class="small" style="margin-top:14px;"><a href="/auth?mode=signin">Back to sign in</a></p>
+      </div>
+    </div>
+    `
   );
 }

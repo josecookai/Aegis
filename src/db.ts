@@ -46,6 +46,24 @@ function migrate(db: Database.Database): void {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_members (
+      team_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('admin','member')),
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, user_id),
+      FOREIGN KEY (team_id) REFERENCES teams(id),
+      FOREIGN KEY (user_id) REFERENCES end_users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS agent_user_links (
       agent_id TEXT NOT NULL,
       end_user_id TEXT NOT NULL,
@@ -71,6 +89,10 @@ function migrate(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
       end_user_id TEXT NOT NULL,
+      team_id TEXT,
+      requested_by_user_id TEXT,
+      approval_target_user_id TEXT,
+      approval_policy TEXT,
       idempotency_key TEXT NOT NULL,
       action_type TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -92,6 +114,7 @@ function migrate(db: Database.Database): void {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (agent_id) REFERENCES agents(id),
       FOREIGN KEY (end_user_id) REFERENCES end_users(id),
+      FOREIGN KEY (team_id) REFERENCES teams(id),
       UNIQUE(agent_id, idempotency_key)
     );
 
@@ -185,6 +208,8 @@ function migrate(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
     CREATE INDEX IF NOT EXISTS idx_actions_end_user ON actions(end_user_id);
+    CREATE INDEX IF NOT EXISTS idx_actions_team ON actions(team_id);
+    CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
     CREATE INDEX IF NOT EXISTS idx_webhooks_due ON webhook_deliveries(status, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_magic_links_hash ON magic_links(token_hash);
     CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action_id);
@@ -232,7 +257,95 @@ function migrate(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
+
+    CREATE TABLE IF NOT EXISTS app_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES end_users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_sessions_token ON app_sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_app_sessions_user ON app_sessions(user_id);
+
+    CREATE TABLE IF NOT EXISTS user_credentials (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      email_normalized TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      password_algo TEXT NOT NULL DEFAULT 'scrypt_v1',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_login_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES end_users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_credentials_user ON user_credentials(user_id);
+
+    CREATE TABLE IF NOT EXISTS oauth_identities (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL CHECK(provider IN ('google','github')),
+      provider_user_id TEXT NOT NULL,
+      email_normalized TEXT NOT NULL,
+      email_verified INTEGER NOT NULL DEFAULT 0,
+      profile_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES end_users(id),
+      UNIQUE(provider, provider_user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
+    CREATE INDEX IF NOT EXISTS idx_oauth_identities_email ON oauth_identities(email_normalized);
+
+    CREATE TABLE IF NOT EXISTS oauth_states (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK(provider IN ('google','github')),
+      state_hash TEXT NOT NULL UNIQUE,
+      next_path TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      consumed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_oauth_states_hash ON oauth_states(state_hash);
+
+    CREATE TABLE IF NOT EXISTS plans (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      interval TEXT NOT NULL DEFAULT 'month',
+      features_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_plans (
+      user_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id),
+      FOREIGN KEY (user_id) REFERENCES end_users(id),
+      FOREIGN KEY (plan_id) REFERENCES plans(id)
+    );
   `);
+
+  // Backfill columns for existing DBs created before team pilot fields existed.
+  const actionColumns = db.prepare(`PRAGMA table_info(actions)`).all() as Array<{ name: string }>;
+  const actionColNames = new Set(actionColumns.map((c) => c.name));
+  const addActionColumn = (name: string, sqlType = 'TEXT') => {
+    if (!actionColNames.has(name)) db.exec(`ALTER TABLE actions ADD COLUMN ${name} ${sqlType}`);
+  };
+  addActionColumn('team_id');
+  addActionColumn('requested_by_user_id');
+  addActionColumn('approval_target_user_id');
+  addActionColumn('approval_policy');
+
+  const agentColumns = db.prepare(`PRAGMA table_info(agents)`).all() as Array<{ name: string }>;
+  const agentColNames = new Set(agentColumns.map((c) => c.name));
+  if (!agentColNames.has('owner_user_id')) {
+    db.exec('ALTER TABLE agents ADD COLUMN owner_user_id TEXT REFERENCES end_users(id)');
+  }
 }
 
 function seed(db: Database.Database): void {
@@ -260,7 +373,39 @@ function seed(db: Database.Database): void {
     db.prepare(
       'INSERT INTO end_users (id, email, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)'
     ).run('usr_demo', 'demo.user@example.com', 'Demo User', 'active', now);
+    for (let i = 1; i <= 10; i += 1) {
+      const id = `usr_team_${String(i).padStart(2, '0')}`;
+      db.prepare(
+        'INSERT INTO end_users (id, email, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(id, `${id}@example.com`, `Team User ${i}`, 'active', now);
+    }
+    db.prepare(
+      'INSERT INTO end_users (id, email, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run('usr_team_admin', 'team.admin@example.com', 'Team Admin', 'active', now);
   }
+
+  const teamCount = db.prepare('SELECT COUNT(1) as c FROM teams').get() as { c: number };
+  if (teamCount.c === 0) {
+    db.prepare('INSERT INTO teams (id, name, status, created_at) VALUES (?, ?, ?, ?)').run('team_demo_01', 'Demo Team 01', 'active', now);
+  }
+
+  const ensureMember = (userId: string, role: 'admin' | 'member') => {
+    const exists = db
+      .prepare('SELECT COUNT(1) as c FROM team_members WHERE team_id = ? AND user_id = ?')
+      .get('team_demo_01', userId) as { c: number };
+    if (exists.c === 0) {
+      db.prepare('INSERT INTO team_members (team_id, user_id, role, status, created_at) VALUES (?, ?, ?, ?, ?)').run(
+        'team_demo_01',
+        userId,
+        role,
+        'active',
+        now
+      );
+    }
+  };
+  ensureMember('usr_demo', 'member');
+  ensureMember('usr_team_admin', 'admin');
+  for (let i = 1; i <= 10; i += 1) ensureMember(`usr_team_${String(i).padStart(2, '0')}`, 'member');
 
   const linkCount = db
     .prepare('SELECT COUNT(1) as c FROM agent_user_links WHERE agent_id = ? AND end_user_id = ?')
@@ -271,6 +416,15 @@ function seed(db: Database.Database): void {
       'usr_demo',
       now
     );
+  }
+  const extraUsers = ['usr_team_admin', ...Array.from({ length: 10 }, (_, i) => `usr_team_${String(i + 1).padStart(2, '0')}`)];
+  for (const userId of extraUsers) {
+    const c = db
+      .prepare('SELECT COUNT(1) as c FROM agent_user_links WHERE agent_id = ? AND end_user_id = ?')
+      .get('agt_demo', userId) as { c: number };
+    if (c.c === 0) {
+      db.prepare('INSERT INTO agent_user_links (agent_id, end_user_id, created_at) VALUES (?, ?, ?)').run('agt_demo', userId, now);
+    }
   }
 
   const pmCount = db.prepare('SELECT COUNT(1) as c FROM payment_methods').get() as { c: number };
@@ -303,6 +457,26 @@ function seed(db: Database.Database): void {
   const execCount = db.prepare('SELECT COUNT(1) as c FROM executions').get() as { c: number };
   if (execCount.c === 0) {
     // no-op; reserved to ensure table exists in some environments
+  }
+
+  const planCount = db.prepare('SELECT COUNT(1) as c FROM plans').get() as { c: number };
+  if (planCount.c === 0) {
+    db.prepare(
+      'INSERT INTO plans (id, name, slug, price_cents, interval, features_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run('plan_free', 'Free', 'free', 0, 'month', JSON.stringify({ actions_per_month: 10 }), now);
+    db.prepare(
+      'INSERT INTO plans (id, name, slug, price_cents, interval, features_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run('plan_pro', 'Pro', 'pro', 1999, 'month', JSON.stringify({ actions_per_month: 1000 }), now);
+  }
+
+  const userPlanCount = db.prepare('SELECT COUNT(1) as c FROM user_plans').get() as { c: number };
+  if (userPlanCount.c === 0) {
+    for (const userId of ['usr_demo', 'usr_team_admin', ...Array.from({ length: 10 }, (_, i) => `usr_team_${String(i + 1).padStart(2, '0')}`)]) {
+      const exists = db.prepare('SELECT 1 FROM end_users WHERE id = ?').get(userId);
+      if (exists) {
+        db.prepare('INSERT OR IGNORE INTO user_plans (user_id, plan_id, status, created_at) VALUES (?, ?, ?, ?)').run(userId, 'plan_free', 'active', now);
+      }
+    }
   }
 
   const existingDocs = db.prepare('SELECT COUNT(1) as c FROM email_outbox').get() as { c: number };
