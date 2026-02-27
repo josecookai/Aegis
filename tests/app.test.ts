@@ -32,6 +32,34 @@ describe('Aegis MVP prototype', () => {
     await api.get('/dev/passkeys').set('Cookie', [adminCookie]).expect(200);
   });
 
+  it('requires admin login for POST /api/dev/actions/:actionId/decision', async () => {
+    const api = request(runtime.app);
+    const create = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_admin_gate_decision_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        details: {
+          amount: '12.34',
+          currency: 'USD',
+          recipient_name: 'Admin Gate Merchant',
+          description: 'admin gate test',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:admin_gate',
+        },
+      })
+      .expect(201);
+    const actionId = String(create.body.action.action_id);
+
+    await api.post(`/api/dev/actions/${actionId}/decision`).send({ decision: 'approve' }).expect(401);
+
+    const adminCookie = await adminLogin(api);
+    await api.post(`/api/dev/actions/${actionId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'deny' }).expect(200);
+  });
+
   it('creates, approves, executes, and callbacks for card rail', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);
