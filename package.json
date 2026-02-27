@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "coverage:gate": "vitest run --coverage --coverage.include=src/routes/api.ts --coverage.include=src/schemas.ts",
+    "ci": "npm run build && npm test && npm run coverage:gate",
     "test:watch": "vitest",
     "demo": "bash scripts/demo.sh",
     "e2e:verify": "bash scripts/e2e-verify.sh"
