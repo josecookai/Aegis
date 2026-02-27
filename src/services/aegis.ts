@@ -6,6 +6,7 @@ import {
   ActionRecord,
   AgentRecord,
   DecisionSource,
+  EndUserRecord,
   PaymentRail,
   RequestActionInput,
   WebhookEventType,
@@ -31,6 +32,13 @@ export interface CreateActionResult {
   idempotencyReplayed: boolean;
 }
 
+export interface ResolvedUserContext {
+  endUser: EndUserRecord;
+  teamId: string;
+  role: 'admin' | 'member';
+  membershipStatus: 'active' | 'disabled';
+}
+
 export class AegisService {
   constructor(
     private readonly store: AegisStore,
@@ -42,6 +50,10 @@ export class AegisService {
 
   getStore(): AegisStore {
     return this.store;
+  }
+
+  getNotifications(): NotificationService {
+    return this.notifications;
   }
 
   getConfig(): AppConfig {
@@ -78,10 +90,17 @@ export class AegisService {
 
     const endUser = this.store.getEndUserById(input.end_user_id);
     if (!endUser || endUser.status !== 'active') {
-      throw new DomainError('INVALID_END_USER', 'Unknown or inactive end_user_id', 404);
+      throw new DomainError('USER_DISABLED', 'Unknown or inactive end_user_id', 404);
     }
     if (!this.store.isAgentLinkedToUser(agent.id, endUser.id)) {
       throw new DomainError('UNLINKED_END_USER', 'Agent is not linked to the specified end user', 403);
+    }
+    const userCtx = this.resolveUserContext(endUser.id);
+    if (userCtx.membershipStatus !== 'active') {
+      throw new DomainError('USER_DISABLED', 'User is not an active team member', 403);
+    }
+    if (this.store.listActiveAdminsForTeam(userCtx.teamId).length === 0) {
+      throw new DomainError('TEAM_ADMIN_NOT_FOUND', 'No active team admin found for user team', 400);
     }
 
     if (input.callback_url) {
@@ -95,12 +114,18 @@ export class AegisService {
       input.details.payment_method_preference
     );
     if (!paymentMethod) {
-      throw new DomainError('PAYMENT_METHOD_NOT_FOUND', `No ${input.details.payment_rail} payment method available for user`, 400);
+      throw new DomainError('NO_DEFAULT_PAYMENT_METHOD', `No ${input.details.payment_rail} payment method available for user`, 400);
     }
 
     const created = this.store.createAction({
       agentId: agent.id,
-      input,
+      input: {
+        ...input,
+        metadata: {
+          ...(input.metadata ?? {}),
+          team_id: userCtx.teamId,
+        },
+      },
       defaultExpiryMinutes: this.config.approvalExpiryMinutesDefault,
     });
 
@@ -130,6 +155,27 @@ export class AegisService {
       action: awaiting,
       approvalUrl: `${this.config.baseUrl}/approve/${encodeURIComponent(magicLink.token)}`,
       idempotencyReplayed: false,
+    };
+  }
+
+  resolveUserContext(userId: string): ResolvedUserContext {
+    const endUser = this.store.getEndUserById(userId);
+    if (!endUser) {
+      throw new DomainError('USER_NOT_IN_TEAM', 'User not found', 404);
+    }
+    const member = this.store.getTeamMemberByUserId(userId);
+    if (!member) {
+      throw new DomainError('USER_NOT_IN_TEAM', 'User is not assigned to a team', 403);
+    }
+    const team = this.store.getTeamById(member.team_id);
+    if (!team || team.status !== 'active') {
+      throw new DomainError('USER_NOT_IN_TEAM', 'User team is unavailable', 403);
+    }
+    return {
+      endUser,
+      teamId: member.team_id,
+      role: member.role,
+      membershipStatus: member.status,
     };
   }
 
@@ -244,7 +290,7 @@ export class AegisService {
   } {
     const action = this.store.getActionById(actionId);
     if (!action) return { valid: false, reason: 'Action not found' };
-    if (action.end_user_id !== userId) return { valid: false, reason: 'User mismatch' };
+    if ((action.approval_target_user_id ?? action.end_user_id) !== userId) return { valid: false, reason: 'Approval not assigned to this user' };
     const endUser = this.store.getEndUserById(action.end_user_id);
     if (!endUser) return { valid: false, reason: 'User not found' };
     if (endUser.status !== 'active') return { valid: false, reason: 'User inactive' };
@@ -411,6 +457,23 @@ export class AegisService {
       end_users: this.store.listEndUsers(),
       recent_actions: actions,
       emails: this.store.listEmailOutbox(20),
+    };
+  }
+
+  getTeamHistoryForAdmin(userId: string, params?: { limit?: number; offset?: number }) {
+    const ctx = this.resolveUserContext(userId);
+    if (ctx.role !== 'admin') {
+      throw new DomainError('ADMIN_AUTH_REQUIRED', 'Admin team member required', 403);
+    }
+    const limit = params?.limit ?? 50;
+    const offset = params?.offset ?? 0;
+    const { rows, total } = this.store.listActionsByTeam(ctx.teamId, limit, offset);
+    return {
+      team_id: ctx.teamId,
+      items: this.store.toActionApiResponseBatch(rows),
+      total,
+      limit,
+      offset,
     };
   }
 

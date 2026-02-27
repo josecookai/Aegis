@@ -1,0 +1,134 @@
+name: Auto PR From Issue
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to create/update auto PR for
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  auto-pr:
+    if: >
+      (github.event_name == 'issues' && github.event.label.name == 'auto-pr') ||
+      (github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve issue and branch
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.eventName === 'workflow_dispatch'
+              ? Number('${{ github.event.inputs.issue_number }}')
+              : context.payload.issue.number;
+            const issue = (await github.rest.issues.get({ owner, repo, issue_number })).data;
+            const slug = issue.title
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 40) || 'task';
+            const branch = `codex/issue-${issue_number}-${slug}`;
+            core.setOutput('issue_number', String(issue_number));
+            core.setOutput('issue_title', issue.title);
+            core.setOutput('branch', branch);
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure dispatch branch exists remotely
+        run: |
+          BRANCH="${{ steps.resolve.outputs.branch }}"
+          if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH does not exist. Run Issue Dispatch first." >&2
+            exit 1
+          fi
+
+      - name: Checkout dispatch branch
+        run: |
+          BRANCH="${{ steps.resolve.outputs.branch }}"
+          git checkout -B "$BRANCH" "origin/$BRANCH"
+
+      - name: Update issue dispatch artifact file
+        run: |
+          ISSUE_NUMBER="${{ steps.resolve.outputs.issue_number }}"
+          ISSUE_TITLE="${{ steps.resolve.outputs.issue_title }}"
+          mkdir -p .github/issue-dispatch
+          cat > ".github/issue-dispatch/issue-${ISSUE_NUMBER}.md" <<EOF
+          # Auto PR Artifact
+
+          - Issue: #${ISSUE_NUMBER}
+          - Title: ${ISSUE_TITLE}
+          - Updated By: GitHub Actions
+          - Updated At (UTC): $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          ## Checklist
+          - [ ] Implementation completed
+          - [ ] Tests added/updated
+          - [ ] Docs updated
+          EOF
+
+      - name: Commit and push artifact update
+        run: |
+          BRANCH="${{ steps.resolve.outputs.branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ".github/issue-dispatch/issue-${{ steps.resolve.outputs.issue_number }}.md"
+          if git diff --cached --quiet; then
+            echo "No content changes to commit."
+          else
+            git commit -m "chore: update issue dispatch artifact for #${{ steps.resolve.outputs.issue_number }}"
+            git push origin "$BRANCH"
+          fi
+
+      - name: Create or update PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number('${{ steps.resolve.outputs.issue_number }}');
+            const issue_title = '${{ steps.resolve.outputs.issue_title }}';
+            const branch = '${{ steps.resolve.outputs.branch }}';
+            const base = (await github.rest.repos.get({ owner, repo })).data.default_branch;
+
+            const prs = await github.rest.pulls.list({
+              owner, repo, state: 'open', head: `${owner}:${branch}`, base,
+            });
+
+            const title = `feat(issue #${issue_number}): ${issue_title}`;
+            const body = [
+              `Auto-generated PR for issue #${issue_number}.`,
+              '',
+              '## Source',
+              `- Branch: `' + branch + '``,
+              `- Issue: #${issue_number}`,
+              '',
+              '## Next Steps',
+              '- Push implementation commits to this branch',
+              '- Ensure CI passes',
+              '- Add label `automerge` if safe to auto-merge',
+            ].join('\n');
+
+            if (prs.data.length > 0) {
+              const pr = prs.data[0];
+              await github.rest.pulls.update({ owner, repo, pull_number: pr.number, title, body });
+              core.info(`Updated existing PR #${pr.number}`);
+            } else {
+              const pr = await github.rest.pulls.create({
+                owner, repo, head: branch, base, title, body, draft: true,
+              });
+              core.info(`Created PR #${pr.data.number}`);
+            }

@@ -131,6 +131,27 @@ npm run e2e:auth
 
 - 团队试点（10人、自批、自有信用卡）结构化文档入口：[`docs/team-pilot/README.md`](docs/team-pilot/README.md)
 - 面向 AI agent 的调用规范：[`docs/team-pilot/AI_AGENT_USAGE.md`](docs/team-pilot/AI_AGENT_USAGE.md)
+- 10 分钟跑通清单：[`docs/Agent-Quickstart.md`](docs/Agent-Quickstart.md)
+- 管理控制面基线：[`docs/Admin-Control-Plane.md`](docs/Admin-Control-Plane.md)
+- Sponge 功能对齐主计划：[`docs/Sponge-Parity-Plan.md`](docs/Sponge-Parity-Plan.md)
+
+---
+
+## Aegis vs Sponge（能力对标，持续更新）
+
+> 维护规则：
+> 1) 仅填写“本仓库可验证”的事实；2) 无法在本仓库验证的 Sponge 信息统一标记 `待补充`；3) 每次更新需同时补充证据来源（代码/文档路径）。
+
+| 能力项 | Aegis（当前仓库） | Sponge（对标状态） | 证据来源（Aegis） | 备注 |
+|--------|-------------------|--------------------|---------------------|------|
+| Agent 支付请求 API | ✅ `/v1/request_action` | 待补充 | `README.md` API 表、`Aegis-API-Spec.md` | 对外主入口 |
+| Human-in-the-loop 审批 | ✅ Web/App 审批链路 | 待补充 | `Aegis-App-Flow-Spec.md`、`Aegis-API-Spec.md` | 支持 action 查询与决策 |
+| 成员独立支付方式 | ✅ `/api/app/payment-methods*` | 待补充 | `docs/Team-Pilot-Contracts.md` | 团队试点能力 |
+| 管理员只读团队历史 | ✅ `/api/app/admin/history` | 待补充 | `docs/Team-Pilot-Contracts.md` | 控制面只读审计视图 |
+| Webhook 回调与重试 | ✅ delivery 队列 + requeue | 待补充 | `Aegis-API-Spec.md`、README Webhook 说明 | 含签名头 |
+| Sandbox 故障注入 | ✅ `/api/dev/sandbox/*` | 待补充 | README Dev 工具、`src/routes/api.ts` | 回归与演示支持 |
+| MCP 工具对接 | ✅ OpenClaw / Manus 文档 | 待补充 | `docs/OpenClaw-Setup.md`、`docs/Manus-Setup.md` | `aegis_*` tools |
+| OpenAPI 覆盖 admin/control | ✅ `docs/openapi.yaml` | 待补充 | `docs/openapi.yaml` | tag: `admin-control` |
 
 ---
 
@@ -186,6 +207,8 @@ npm run e2e:auth
 | **E2E 演示脚本** | Demo | 9 步手动测试 + Checklist | [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md) |
 | **OpenClaw 配置** | Setup | MCP URL、环境变量、验证 tools | [docs/OpenClaw-Setup.md](docs/OpenClaw-Setup.md) |
 | **Manus 接入** | Setup | REST 直连 + MCP | [docs/Manus-Setup.md](docs/Manus-Setup.md) |
+| **Agent 快速启动** | Quickstart | 10 分钟完成本地 E2E 最小闭环 | [docs/Agent-Quickstart.md](docs/Agent-Quickstart.md) |
+| **Admin 控制面** | Ops Baseline | key/limits/allowlist/rotation 基线 | [docs/Admin-Control-Plane.md](docs/Admin-Control-Plane.md) |
 | **E2E 验收 Checklist** | Verification | 验收结果、Peer Review、Bug 列表 | [docs/E2E-Verification-Checklist.md](docs/E2E-Verification-Checklist.md) |
 | **测试覆盖率报告** | Coverage | 各模块覆盖率、缺口、建议 | [docs/Test-Coverage-Report.md](docs/Test-Coverage-Report.md) |
 | **术语表** | Glossary | 统一术语定义，按字母和主题分类 | [Aegis-Glossary.md](Aegis-Glossary.md) |

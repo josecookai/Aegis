@@ -714,6 +714,34 @@ interface CallbackPayload {
 
 完整 OpenAPI 3.0 定义见：`openapi.yaml`（如存在）
 
+### 7.1 Admin / Control Endpoints 与主规格映射
+
+> 用于把“对外 Agent API”与“内部管理控制面 API”在 OpenAPI 中统一标注，避免实现与规格漂移。
+
+| Endpoint | OpenAPI Tag | 映射 Feature | 说明 |
+|----------|-------------|--------------|------|
+| `GET /api/app/admin/history` | `admin-control` | `F-06` | 团队只读历史（管理员） |
+| `GET /api/dev/actions` | `admin-control` | `F-04` | 控制面查看近期 Action 列表 |
+| `GET /api/dev/actions/{actionId}/audit` | `admin-control` | `F-04` | 查看单个 Action 审计日志 |
+| `POST /api/dev/actions/{actionId}/decision` | `admin-control` | `F-04` | 强制决策（approve/deny/expire）用于调试 |
+| `POST /api/dev/workers/tick` | `admin-control` | `F-05` | 控制面推进状态机与执行 |
+| `GET /api/dev/webhooks` | `admin-control` | `F-06` | 查看 Webhook 投递记录 |
+| `POST /api/dev/webhooks/{deliveryId}/requeue` | `admin-control` | `F-06` | Webhook 重放控制 |
+| `GET/POST /api/dev/sandbox/faults` | `admin-control` | `F-05` | 故障注入与回归验证 |
+| `POST /api/dev/sandbox/faults/reset` | `admin-control` | `F-05` | 重置故障注入状态 |
+| `POST /api/dev/sandbox/presets` | `admin-control` | `F-05` | 应用预置故障场景（Preset） |
+| `GET /api/dev/payment-methods` | `admin-control` | `F-02` | 开发期查询用户已保存卡 |
+| `POST /api/dev/payment-methods` | `admin-control` | `F-02` | 开发期通过 Stripe PM 绑定卡 |
+| `DELETE /api/dev/payment-methods/{id}` | `admin-control` | `F-02` | 开发期删除用户卡 |
+| `POST /api/dev/payment-methods/{id}/default` | `admin-control` | `F-02` | 开发期设置默认卡 |
+| `POST /api/dev/stripe/setup-test-card` | `admin-control` | `F-02` | 开发期一键绑定 Stripe 测试卡 |
+
+说明：
+
+- 对外调用建议优先使用 `agent-api` 标签下的 `/v1/*`。
+- `admin-control` 默认面向内部运维，不应暴露给普通客户端。
+- OpenAPI 中上述端点均补充 `x-spec-map` 字段（`feature` + `doc`）用于实现与规格双向追踪。
+
 ---
 
 ## 8. 代码示例索引

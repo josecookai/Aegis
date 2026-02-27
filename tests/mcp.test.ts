@@ -95,6 +95,61 @@ describe('Aegis MCP integration', () => {
     await expect(client.getStatus('nonexistent_action_id')).rejects.toThrow(/Aegis API error/);
   });
 
+  it('request_action with optional callback_url (omitted) succeeds', async () => {
+    const body = {
+      idempotency_key: `opt-cb-${Date.now()}`,
+      action_type: 'payment',
+      end_user_id: 'usr_demo',
+      details: {
+        amount: '1.00',
+        currency: 'USD',
+        recipient_name: 'Opt CB Test',
+        description: 'No callback_url',
+        payment_rail: 'card',
+        payment_method_preference: 'card_default',
+        recipient_reference: 'merchant_api:opt_cb',
+      },
+    };
+    const res = await fetch(`${baseUrl}/v1/request_action`, {
+      method: 'POST',
+      headers: { 'X-Aegis-API-Key': 'aegis_demo_agent_key', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    expect(data.action?.action_id).toBeTruthy();
+    expect(data.action?.status).toBe('awaiting_approval');
+  });
+
+  it('request_action without recipient_reference returns 400', async () => {
+    const body = {
+      idempotency_key: `no-ref-${Date.now()}`,
+      action_type: 'payment',
+      end_user_id: 'usr_demo',
+      details: {
+        amount: '1.00',
+        currency: 'USD',
+        recipient_name: 'No Ref',
+        description: 'Missing recipient_reference',
+        payment_rail: 'card',
+        payment_method_preference: 'card_default',
+      },
+    };
+    const res = await fetch(`${baseUrl}/v1/request_action`, {
+      method: 'POST',
+      headers: { 'X-Aegis-API-Key': 'aegis_demo_agent_key', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.details).toBeDefined();
+    const details = Array.isArray(data.details) ? data.details : [data];
+    const hasRecipientRefError = details.some(
+      (d: any) => d.path?.includes?.('recipient_reference') || String(d.message || '').includes('recipient_reference'),
+    );
+    expect(hasRecipientRefError || data.error).toBeTruthy();
+  });
+
   it('full payment flow: request -> approve -> execute -> verify', async () => {
     const created = await client.requestPayment({
       amount: '99.00',

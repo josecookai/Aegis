@@ -1,11 +1,22 @@
-# OpenClaw 接入 Aegis MCP 配置指南
+# OpenClaw 接入 Aegis 配置指南
 
-> 让 OpenClaw 通过 MCP 调用 Aegis 支付工具，实现「Agent 发起支付 → 用户审批 → 扣款」闭环。  
+> 让 OpenClaw 调用 Aegis 支付能力，实现「Agent 发起支付 → 用户审批 → 扣款」闭环。  
 > 最后更新：2026-02-23
 
 ---
 
-## 1. 前置条件
+## 0. 接入方式选择
+
+| 方式 | 适用场景 | 说明 |
+|------|----------|------|
+| **方式 A（推荐）** | OpenClaw 支持 HTTP 调用、不支持 MCP SSE | **REST API 直连** — 直接调用 Aegis 后端，无状态、单次请求。详见 [OpenClaw-REST-API.md](OpenClaw-REST-API.md) |
+| **方式 B** | Claude Desktop、Cursor 等支持 MCP 会话的客户端 | **MCP** — 通过 MCP HTTP Server 暴露工具。当前 OpenClaw MCP bridge 存在协议限制（需 SSE 会话），可能返回「Server not initialized」 |
+
+**若遇到「Server not initialized」或 MCP 工具调用失败**：改用 REST API 直连，见 [OpenClaw-REST-API.md](OpenClaw-REST-API.md)。
+
+---
+
+## 1. 前置条件（MCP 方式）
 
 | 组件 | 说明 |
 |------|------|
@@ -263,6 +274,7 @@ export MCP_HTTP_PORT="8080"
 
 | 现象 | 可能原因 | 解决 |
 |------|----------|------|
+| Server not initialized / 工具调用失败 | MCP 需 SSE 会话，OpenClaw 不支持 | 改用 REST API 直连后端，见 [OpenClaw-REST-API.md](OpenClaw-REST-API.md) |
 | 启动时跳过 aegis 服务器 | `healthCheck: true` 且 MCP 未启动 | 先启动 `npm run start:http`，再启动 OpenClaw |
 | 工具不可见 | MCP URL 错误或网络不通 | 用 `curl http://localhost:8080/health` 验证 |
 | 调用返回 401 | Aegis 后端 API Key 不匹配 | 检查 `AEGIS_API_KEY` 与后端 `.env` 一致 |
@@ -307,6 +319,7 @@ export MCP_HTTP_PORT="8080"
 
 ## 7. 相关文档
 
+- [OpenClaw-REST-API.md](OpenClaw-REST-API.md) — REST API 直连（推荐，当 MCP 不可用时）
 - [mcp-server/SKILL.md](../mcp-server/SKILL.md) — 工具说明与典型流程
 - [Aegis-API-Spec.md](Aegis-API-Spec.md) — REST API 规格
 - [Aegis-E2E-Demo-Script.md](Aegis-E2E-Demo-Script.md) — 端到端演示脚本

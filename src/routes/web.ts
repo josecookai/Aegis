@@ -228,7 +228,7 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
       return res.redirect(`/auth?mode=signin&next=${next}`);
     }
     const userId = portalUser.id;
-    const showUserSwitcher = typeof req.query.user_id === 'string' && String(req.query.user_id).trim().length > 0;
+    const showUserSwitcher = portalUser.source === 'query';
     const store = service.getStore();
     const endUser = store.getEndUserById(userId);
     const agents = store.listAgents().map((a) => ({ id: a.id, name: a.name, status: a.status }));
@@ -241,6 +241,7 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
         agents,
         paymentMethodsCount,
         showUserSwitcher,
+        precheckCode: String(req.query.precheck_code ?? '').trim() || undefined,
       })
     );
   });
@@ -254,7 +255,7 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
     const userId = portalUser.id;
     const config = service.getConfig();
     const baseUrl = config.baseUrl ?? `${req.protocol}://${req.get('host')}`;
-    const sessionMode = !(typeof req.query.user_id === 'string' && String(req.query.user_id).trim());
+    const sessionMode = portalUser.source === 'session';
     res.type('html').send(
       renderMemberPaymentMethodsPage({
         publishableKey: config.stripePublishableKey,
@@ -272,7 +273,7 @@ export function createWebRouter(service: AegisService, webauthn: WebAuthnService
       return res.redirect(`/auth?mode=signin&next=${next}`);
     }
     const userId = portalUser.id;
-    const showUserSwitcher = typeof req.query.user_id === 'string' && String(req.query.user_id).trim().length > 0;
+    const showUserSwitcher = portalUser.source === 'query';
     const store = service.getStore();
     const agents = store.listAgents().map((a) => ({
       id: a.id,
@@ -406,18 +407,20 @@ function sanitizeNextPath(input: string): string {
   return input;
 }
 
-function resolvePortalUser(req: any, service: AegisService): { id: string } | null {
-  const qUserId = String(req.query?.user_id ?? '').trim();
-  if (qUserId) {
-    const qUser = service.getStore().getEndUserById(qUserId);
-    if (qUser && qUser.status === 'active') return { id: qUserId };
-  }
+function resolvePortalUser(req: any, service: AegisService): { id: string; source: 'session' | 'query' } | null {
   const appCookieName = service.getConfig().appSessionCookieName;
   const sessionToken = String(req.cookies?.[appCookieName] ?? '').trim();
-  if (!sessionToken) return null;
-  const sess = service.getStore().verifyAppSession(sessionToken);
-  if (!sess) return null;
-  const endUser = service.getStore().getEndUserById(sess.userId);
-  if (!endUser || endUser.status !== 'active') return null;
-  return { id: endUser.id };
+  if (sessionToken) {
+    const sess = service.getStore().verifyAppSession(sessionToken);
+    if (sess) {
+      const endUser = service.getStore().getEndUserById(sess.userId);
+      if (endUser && endUser.status === 'active') return { id: endUser.id, source: 'session' };
+    }
+  }
+
+  const qUserId = String(req.query?.user_id ?? '').trim();
+  if (!qUserId) return null;
+  const qUser = service.getStore().getEndUserById(qUserId);
+  if (!qUser || qUser.status !== 'active') return null;
+  return { id: qUserId, source: 'query' };
 }

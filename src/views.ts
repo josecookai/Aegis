@@ -1155,6 +1155,7 @@ export function renderDashboardPage(params: {
   agents: Array<{ id: string; name: string; status: string }>;
   paymentMethodsCount?: number;
   showUserSwitcher?: boolean;
+  precheckCode?: string;
 }): string {
   const plan = params.planLabel ?? 'Demo';
   const agentsRows = params.agents
@@ -1164,6 +1165,30 @@ export function renderDashboardPage(params: {
     )
     .join('');
   const pmCount = params.paymentMethodsCount ?? 0;
+  const precheckCode = String(params.precheckCode ?? '').trim().toUpperCase();
+  const precheckMap: Record<string, { title: string; detail: string; next: string }> = {
+    NO_DEFAULT_PAYMENT_METHOD: {
+      title: '无默认支付方式',
+      detail: '当前账户没有可用默认卡，无法继续支付。',
+      next: '下一步：前往“支付方式”添加并设为默认卡后重试。',
+    },
+    LIMIT_EXCEEDED_SINGLE: {
+      title: '超出单笔限额',
+      detail: '本次支付金额超过当前策略允许的单笔上限。',
+      next: '下一步：降低金额后重试，或联系团队管理员调整限额策略。',
+    },
+    LIMIT_EXCEEDED_DAILY: {
+      title: '超出日累计限额',
+      detail: '当日累计支付金额已达上限。',
+      next: '下一步：次日重试，或联系团队管理员调整日限额。',
+    },
+    RECIPIENT_NOT_ALLOWED: {
+      title: '收款方不在 allowlist',
+      detail: '当前收款方未在允许名单中，系统已拦截本次请求。',
+      next: '下一步：改用已在 allowlist 的收款方，或联系团队管理员加白。',
+    },
+  };
+  const activePrecheck = precheckMap[precheckCode];
   return layout(
     'Dashboard — Aegis',
     `
@@ -1189,7 +1214,7 @@ export function renderDashboardPage(params: {
                  <input id="user_id" name="user_id" value="${escapeHtml(params.userId)}" placeholder="usr_demo" />
                  <button type="submit" class="btn btn-secondary">切换用户</button>
                </form>
-               <p class="small">当前为联调模式（query 参数切换用户）。</p>`
+               <p class="small">当前为联调回退模式（仅内部测试）。优先建议使用登录态 session。</p>`
             : ''
         }
         <div class="grid cols-2" style="gap:16px;">
@@ -1206,6 +1231,25 @@ export function renderDashboardPage(params: {
             <strong style="font-size:18px;">${pmCount} 张卡</strong>
           </div>
         </div>
+      </div>
+      <div class="card">
+        <h2>支付前检查失败恢复（Phase 1 占位）</h2>
+        <p class="small muted">用于展示 pre-check 失败原因与下一步引导。当前版本为最小可用提示层。</p>
+        ${
+          activePrecheck
+            ? `<div class="card" style="padding:12px; background:#fff7ed; border-color:#fdba74;">
+                 <strong>${escapeHtml(activePrecheck.title)}</strong>
+                 <p class="small" style="margin:8px 0 4px;">${escapeHtml(activePrecheck.detail)}</p>
+                 <p class="small">${escapeHtml(activePrecheck.next)}</p>
+               </div>`
+            : '<p class="small">可通过 query 参数 <code>precheck_code</code> 预览失败态（例如 <code>NO_DEFAULT_PAYMENT_METHOD</code>）。</p>'
+        }
+        <ul class="small muted">
+          <li><code>NO_DEFAULT_PAYMENT_METHOD</code>：去支付方式页补齐默认卡。</li>
+          <li><code>LIMIT_EXCEEDED_SINGLE</code>/<code>LIMIT_EXCEEDED_DAILY</code>：调整金额或联系管理员调限额。</li>
+          <li><code>RECIPIENT_NOT_ALLOWED</code>：改用 allowlist 收款方或联系管理员加白。</li>
+        </ul>
+        <p><a href="/settings/payment-methods" class="btn btn-secondary">去管理支付方式</a></p>
       </div>
       <div class="card">
         <h2>已关联 Agent</h2>
@@ -1513,6 +1557,16 @@ export function renderMemberPaymentMethodsPage(params: {
           <button type="submit" class="btn btn-secondary">刷新</button>
         </form>
         <p class="small">当前用户：<code>${escapeHtml(params.userId)}</code>${params.sessionMode ? '（来自登录态）' : '（来自 query 参数）'}</p>
+        <p class="small muted">仍依赖 <code>?user_id=</code> 回退的页面：<code>/dashboard</code>、<code>/settings/payment-methods</code>、<code>/settings/api-keys</code>（仅内部联调）。</p>
+        <div class="card" style="padding:12px; background:#fff7ed; border-color:#fdba74;">
+          <strong>支付前检查失败恢复（占位）</strong>
+          <ul class="small muted">
+            <li><code>NO_DEFAULT_PAYMENT_METHOD</code>：在本页添加并设置默认卡。</li>
+            <li><code>LIMIT_EXCEEDED_SINGLE</code>/<code>LIMIT_EXCEEDED_DAILY</code>：降低金额或联系管理员调整限额。</li>
+            <li><code>RECIPIENT_NOT_ALLOWED</code>：更换收款方或联系管理员加入 allowlist。</li>
+          </ul>
+          <p id="precheck-hint" class="small" style="margin:0;"></p>
+        </div>
         <p id="global-status" class="small muted" aria-live="polite"></p>
         <p><a href="/dashboard">← 返回 Dashboard</a> · <a href="/">返回首页</a></p>
       </div>
@@ -1533,6 +1587,17 @@ export function renderMemberPaymentMethodsPage(params: {
       const statusEl = document.getElementById('global-status');
       const errorEl = document.getElementById('card-errors');
       const submitBtn = document.getElementById('submit-btn');
+      const precheckHintEl = document.getElementById('precheck-hint');
+
+      const errorCodeMap = {
+        PAYMENT_METHOD_NOT_FOUND: '卡片不存在或不属于当前用户，请刷新后重试。',
+        STRIPE_NOT_CONFIGURED: 'Stripe 未配置，暂时无法添加卡片。请联系管理员。',
+        CARD_ALREADY_SAVED: '该卡已绑定到其他账户，请更换卡片。',
+        NO_DEFAULT_PAYMENT_METHOD: '无默认支付方式。请先添加并设置默认卡。',
+        LIMIT_EXCEEDED_SINGLE: '已超过单笔限额。请降低金额后重试。',
+        LIMIT_EXCEEDED_DAILY: '已超过日累计限额。可次日重试或联系管理员。',
+        RECIPIENT_NOT_ALLOWED: '收款方不在 allowlist。请更换收款方或联系管理员。'
+      };
 
       function setStatus(msg, kind) {
         if (!statusEl) return;
@@ -1542,10 +1607,20 @@ export function renderMemberPaymentMethodsPage(params: {
       function setError(msg) {
         if (errorEl) errorEl.textContent = msg || '';
       }
+      function setPrecheckHint(codeOrMessage) {
+        if (!precheckHintEl) return;
+        const key = String(codeOrMessage || '').trim().toUpperCase();
+        if (errorCodeMap[key]) {
+          precheckHintEl.textContent = '恢复建议：' + errorCodeMap[key];
+          return;
+        }
+        precheckHintEl.textContent = '';
+      }
       async function parseError(res, fallback) {
         try {
           const data = await res.json();
-          return data.message || data.error || fallback;
+          const code = String(data.error || '').trim();
+          return (code && errorCodeMap[code]) ? (errorCodeMap[code] + (data.message ? '（' + data.message + '）' : '')) : (data.message || code || fallback);
         } catch {
           return fallback;
         }
@@ -1588,6 +1663,7 @@ export function renderMemberPaymentMethodsPage(params: {
         } catch (err) {
           cardsListEl.innerHTML = '<p style="color:var(--danger)">' + ((err && err.message) || '加载卡片失败') + '</p>';
           setStatus('加载失败', 'error');
+          setPrecheckHint(err && err.message);
         }
       }
 
@@ -1605,6 +1681,7 @@ export function renderMemberPaymentMethodsPage(params: {
             setStatus('删除成功');
           } catch (err) {
             setStatus((err && err.message) || '删除失败', 'error');
+            setPrecheckHint(err && err.message);
             btn.disabled = false;
           }
         });
@@ -1623,6 +1700,7 @@ export function renderMemberPaymentMethodsPage(params: {
             setStatus('默认卡已更新');
           } catch (err) {
             setStatus((err && err.message) || '设置失败', 'error');
+            setPrecheckHint(err && err.message);
             btn.disabled = false;
           }
         });
@@ -1656,6 +1734,7 @@ export function renderMemberPaymentMethodsPage(params: {
         if (result.error || !result.paymentMethod) {
           setStatus('');
           setError((result.error && result.error.message) || '创建支付方式失败');
+          setPrecheckHint(result.error && result.error.message);
           if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.textContent = '保存卡片';
@@ -1675,12 +1754,14 @@ export function renderMemberPaymentMethodsPage(params: {
         } catch (err) {
           setStatus((err && err.message) || '保存失败', 'error');
           setError((err && err.message) || '保存失败');
+          setPrecheckHint(err && err.message);
           if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.textContent = '保存卡片';
           }
         }
       });
+      setPrecheckHint(new URLSearchParams(window.location.search).get('precheck_code'));
     })();
     </script>
   `

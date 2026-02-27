@@ -77,9 +77,20 @@ components:
       example: t=1700000000,v1=<hex-hmac>
 security:
   - ApiKeyAuth: []
+tags:
+  - name: agent-api
+    description: Agent-facing production APIs (`/v1/*`)
+  - name: app-api
+    description: End-user app APIs (`/api/app/*`)
+  - name: admin-control
+    description: Admin/control plane APIs (internal/privileged)
 paths:
   /v1/request_action:
     post:
+      tags: [agent-api]
+      x-spec-map:
+        feature: F-03
+        doc: Aegis-API-Spec.md#21-post-v1request_action
       summary: Create a payment authorization request
       requestBody:
         required: true
@@ -105,6 +116,10 @@ paths:
         '401': { description: Unauthorized agent }
   /v1/actions/{actionId}:
     get:
+      tags: [agent-api]
+      x-spec-map:
+        feature: F-04
+        doc: Aegis-API-Spec.md#22-get-v1requestsrequest_id
       summary: Get an action by ID
       parameters:
         - in: path
@@ -124,6 +139,10 @@ paths:
         '404': { description: Not found }
   /v1/actions/{actionId}/cancel:
     post:
+      tags: [agent-api]
+      x-spec-map:
+        feature: F-04
+        doc: Aegis-API-Spec.md#2-api-endpoints
       summary: Cancel an awaiting_approval action
       parameters:
         - in: path
@@ -143,6 +162,10 @@ paths:
         '409': { description: Invalid state }
   /v1/payment_methods/capabilities:
     get:
+      tags: [agent-api]
+      x-spec-map:
+        feature: F-02
+        doc: Aegis-API-Spec.md#4-data-models--types
       summary: Get capabilities for an end user
       parameters:
         - in: query
@@ -166,6 +189,10 @@ paths:
                     items: { type: object, additionalProperties: true }
   /v1/webhooks/test:
     post:
+      tags: [agent-api]
+      x-spec-map:
+        feature: F-06
+        doc: Aegis-API-Spec.md#31-webhook-payload-schema-v1
       summary: Queue a webhook test event (prototype)
       requestBody:
         required: true
@@ -186,6 +213,345 @@ paths:
                 properties:
                   queued: { type: boolean }
                   event_id: { type: string }
+  /api/app/admin/history:
+    get:
+      tags: [app-api, admin-control]
+      summary: Read-only team history for admin users
+      description: Requires admin context; intended for team pilot operations.
+      parameters:
+        - in: query
+          name: user_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: Team history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team_id: { type: string }
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Action'
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '401': { description: Admin auth required }
+        '403': { description: Not an admin user for the team }
+      x-spec-map:
+        feature: F-06
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/workers/tick:
+    post:
+      tags: [admin-control]
+      summary: Run one control-plane tick (expire -> execute -> callback)
+      responses:
+        '200':
+          description: Tick result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expired: { type: integer }
+                  executed: { type: integer }
+                  callbacks: { type: integer }
+      x-spec-map:
+        feature: F-05
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/actions:
+    get:
+      tags: [admin-control]
+      summary: List recent actions for internal debugging
+      responses:
+        '200':
+          description: Action list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Action'
+      x-spec-map:
+        feature: F-04
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/actions/{actionId}/audit:
+    get:
+      tags: [admin-control]
+      summary: Get audit logs for one action
+      parameters:
+        - in: path
+          name: actionId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Audit log rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action_id: { type: string }
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+      x-spec-map:
+        feature: F-04
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/actions/{actionId}/decision:
+    post:
+      tags: [admin-control]
+      summary: Force one action decision (approve/deny/expire) for debugging
+      parameters:
+        - in: path
+          name: actionId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, deny, expire] }
+                decision_source: { type: string, default: web_magic_link }
+      responses:
+        '200':
+          description: Updated action
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action:
+                    $ref: '#/components/schemas/Action'
+        '400': { description: Invalid decision }
+      x-spec-map:
+        feature: F-04
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/webhooks:
+    get:
+      tags: [admin-control]
+      summary: List webhook deliveries for inspection
+      parameters:
+        - in: query
+          name: action_id
+          required: false
+          schema: { type: string }
+        - in: query
+          name: status
+          required: false
+          schema: { type: string }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Delivery list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deliveries:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+      x-spec-map:
+        feature: F-06
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/sandbox/faults:
+    get:
+      tags: [admin-control]
+      summary: Get current sandbox fault injection settings
+      responses:
+        '200':
+          description: Current sandbox fault config
+    post:
+      tags: [admin-control]
+      summary: Set sandbox fault injection mode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rail, mode]
+              properties:
+                rail: { type: string, enum: [card, crypto] }
+                mode: { type: string, example: decline }
+                scope: { type: string, enum: [once, sticky], default: once }
+      responses:
+        '200': { description: Updated sandbox fault config }
+        '400': { description: Invalid rail/mode/scope }
+      x-spec-map:
+        feature: F-05
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/sandbox/faults/reset:
+    post:
+      tags: [admin-control]
+      summary: Reset all sandbox fault modes
+      responses:
+        '200': { description: Reset complete }
+      x-spec-map:
+        feature: F-05
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/sandbox/presets:
+    post:
+      tags: [admin-control]
+      summary: Apply one sandbox fault preset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preset]
+              properties:
+                preset: { type: string, enum: [PSP_DECLINE_DEMO, CHAIN_REVERT_DEMO, TIMEOUT_DEMO] }
+      responses:
+        '200': { description: Preset applied }
+        '400': { description: Invalid preset }
+      x-spec-map:
+        feature: F-05
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/payment-methods:
+    get:
+      tags: [admin-control]
+      summary: List saved card payment methods for one user (dev helper)
+      parameters:
+        - in: query
+          name: user_id
+          required: false
+          schema: { type: string, default: usr_demo }
+      responses:
+        '200': { description: Payment method list }
+        '404': { description: User not found }
+      x-spec-map:
+        feature: F-02
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+    post:
+      tags: [admin-control]
+      summary: Attach Stripe payment method to one user (dev helper)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_method_id]
+              properties:
+                payment_method_id: { type: string, example: pm_123 }
+                user_id: { type: string, default: usr_demo }
+      responses:
+        '201': { description: Created }
+        '400': { description: Invalid payment method or Stripe not configured }
+        '404': { description: User not found }
+      x-spec-map:
+        feature: F-02
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/payment-methods/{id}:
+    delete:
+      tags: [admin-control]
+      summary: Delete one saved payment method (dev helper)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: user_id
+          required: false
+          schema: { type: string, default: usr_demo }
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Payment method not found }
+      x-spec-map:
+        feature: F-02
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/payment-methods/{id}/default:
+    post:
+      tags: [admin-control]
+      summary: Set one payment method as default (dev helper)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: user_id
+          required: false
+          schema: { type: string, default: usr_demo }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string, default: usr_demo }
+      responses:
+        '200': { description: Updated }
+        '404': { description: Payment method not found }
+      x-spec-map:
+        feature: F-02
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/stripe/setup-test-card:
+    post:
+      tags: [admin-control]
+      summary: Set up Stripe test card for one user (dev helper)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string, default: usr_demo }
+                card_number: { type: string, default: '4242424242424242' }
+      responses:
+        '200': { description: Stripe test card linked }
+        '400': { description: Unsupported card number or Stripe not configured }
+        '404': { description: User not found }
+      x-spec-map:
+        feature: F-02
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
+  /api/dev/webhooks/{deliveryId}/requeue:
+    post:
+      tags: [admin-control]
+      summary: Requeue one webhook delivery
+      parameters:
+        - in: path
+          name: deliveryId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Requeue accepted }
+        '404': { description: Delivery not found }
+      x-spec-map:
+        feature: F-06
+        doc: Aegis-API-Spec.md#71-admin--control-endpoints-与主规格映射
 webhooks:
   aegisActionEvent:
     post:

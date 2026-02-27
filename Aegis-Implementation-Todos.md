@@ -93,6 +93,7 @@ quick_ref: |
 - **App 流程规格:** [Aegis-App-Flow-Spec.md](Aegis-App-Flow-Spec.md) — E2E 流程、审批状态机、子流程、异常与边界
 - **API 规格:** [Aegis-API-Spec.md](Aegis-API-Spec.md) — 鉴权、端点、回调、数据模型、限流与幂等
 - **移动端 UX 规格:** [Aegis-Mobile-UX-Spec.md](Aegis-Mobile-UX-Spec.md) — IA、关键界面、推送与深链、无障碍
+- **团队试点文档索引:** [docs/team-pilot/README.md](docs/team-pilot/README.md) — 团队试点角色模型、接口、E2E、AI agent 调用规范
 
 ---
 
@@ -178,15 +179,29 @@ quick_ref: |
 
 **文档索引：** [OpenClaw-Setup](docs/OpenClaw-Setup.md) | [Manus-Setup](docs/Manus-Setup.md) | [E2E-Verification-Checklist](docs/E2E-Verification-Checklist.md)
 
+### 6.0. 后端单元测试与覆盖率（Agent A）
+
+| ID | Task | 说明 | 状态 |
+|----|------|------|------|
+| A1 | vitest coverage 配置 | @vitest/coverage-v8，text+html reporter | ✅ |
+| A2 | stateMachine 单元测试 | canTransition、assertTransition、isTerminalStatus | ✅ |
+| A3 | lib/crypto 单元测试 | sha256、hmacSha256Hex、randomToken、randomId、safeJsonParse | ✅ |
+| A4 | lib/time 单元测试 | nowIso、addMinutesIso、isPast、unixTsSeconds | ✅ |
+| A5 | schemas 单元测试 | requestActionSchema、webhookTestSchema、cancelActionSchema | ✅ |
+| A6 | store 单元测试 | getAgentByApiKey、createAction、transitionActionStatus 等（:memory: DB） | ✅ |
+| A7 | aegis 单元测试 | authenticateAgent、createActionRequest 校验逻辑 | ✅ |
+| A8 | execution 单元测试 | card/crypto mock、fault 注入 | ✅ |
+| A9 | 覆盖率报告 | 见 [docs/Test-Coverage-Report.md](docs/Test-Coverage-Report.md) | ✅ |
+
 ### 6.1. 部署与公网可达（G1）
 
 | ID | Task | 说明 | 状态 |
 |----|------|------|------|
-| G1-1 | 部署 Aegis 后端到公网 | Vercel / Railway / VPS；需持久化 DB（SQLite 或迁移到 Vercel Postgres） | ⬜ |
-| G1-2 | 配置 `BASE_URL` 与 `STRIPE_SECRET_KEY` | 生产环境变量；Stripe 测试模式 key 即可 | ⬜ |
-| G1-3 | 部署 MCP HTTP Server | 与后端同域或独立子域；监听 `/mcp` 或 `:8080/mcp` | ⬜ |
+| G1-1 | 部署 Aegis 后端到公网 | Vercel / Railway / VPS；需持久化 DB（SQLite 或迁移到 Vercel Postgres） | ✅ Railway |
+| G1-2 | 配置 `BASE_URL` 与 `STRIPE_SECRET_KEY` | 生产环境变量；Stripe 测试模式 key 即可 | ✅ BASE_URL 已配置 |
+| G1-3 | 部署 MCP HTTP Server | 与后端同域或独立子域；监听 `/mcp` 或 `:8080/mcp` | ⬜ 可选；OpenClaw 可 REST 直连 |
 | G1-4 | 配置 MCP 的 `AEGIS_API_URL` | 指向已部署后端公网 URL | ⬜ |
-| G1-5 | 验证 OpenClaw 可访问 | `curl` 或 OpenClaw 配置 MCP endpoint 后能列出 tools | ⬜ |
+| G1-5 | 验证 OpenClaw 可访问 | `curl` 或 OpenClaw 配置 MCP endpoint 后能列出 tools | ✅ REST API 已验证 |
 
 ### 6.2. 网页添加信用卡（G2）
 
@@ -226,7 +241,17 @@ E2E-1 → E2E-2 → E2E-3 → E2E-4 → E2E-5   # 最后跑通全流程
 
 **依赖关系：** G2 依赖 G1（后端已部署）；E2E 依赖 G1 + G2。
 
-### 6.6. 验收结果与 Bug 列表
+### 6.6. Agent B — API/Web 路由集成测试与 Dev 端点覆盖（2026-02-23）
+
+| 测试文件 | 覆盖内容 |
+|----------|----------|
+| `tests/app.test.ts` | `GET /v1/payment_methods/capabilities`（有卡/无卡/缺参/未关联用户）；`POST/GET/DELETE /api/dev/payment-methods`；`POST /api/dev/payment-methods/:id/default`；`/dev/add-card` 鉴权与渲染；Stripe 未配置时 `STRIPE_NOT_CONFIGURED` |
+| `tests/unit/adminAuth.test.ts` | `isEnabled`、`verifyPassword`、`issueSessionToken`、`verifySessionToken`（有效/无效/过期/tampered token） |
+| `tests/unit/webhookSender.test.ts` | `deliver()`：mock fetch，验证 `x-aegis-signature`、`x-aegis-event-id`、`x-aegis-event-type` 头；2xx 成功、5xx 失败、网络错误 |
+| `tests/unit/notifications.test.ts` | `sendApprovalEmail` 入参校验、outbox 写入、`escapeHtml` 防 XSS |
+| `tests/unit/sandboxFaults.test.ts` | `getSnapshot`、`setCardFault`/`setCryptoFault`、`resetAll`、`applyPreset`（PSP_DECLINE_DEMO/CHAIN_REVERT_DEMO/TIMEOUT_DEMO）、`consumeForRail`（once/sticky） |
+
+### 6.7. 验收结果与 Bug 列表
 
 详见 [docs/E2E-Verification-Checklist.md](docs/E2E-Verification-Checklist.md)。Peer Review（Agent A 部署、Agent B PCI）见该文档 §5。
 
@@ -259,9 +284,9 @@ E2E-1 → E2E-2 → E2E-3 → E2E-4 → E2E-5   # 最后跑通全流程
 
 | # | 验收项 | 通过标准 | 状态 |
 |---|--------|----------|------|
-| D1-1 | OpenClaw 可发现 Aegis 工具 | 配置 MCP 后，OpenClaw 能列出 `aegis_request_payment`、`aegis_get_payment_status`、`aegis_cancel_payment`、`aegis_list_capabilities` | ⬜ |
-| D1-2 | OpenClaw 能理解 Skill 用法 | 给 OpenClaw 提供 SKILL.md 或说明后，能正确调用 `aegis_request_payment` 并传入 amount、recipient、description | ⬜ |
-| D1-3 | OpenClaw 能轮询状态 | 调用 `aegis_get_payment_status` 获取 action 状态，并能识别 `succeeded`、`denied`、`expired` | ⬜ |
+| D1-1 | OpenClaw 可发现 Aegis 工具 | 配置 MCP 后，OpenClaw 能列出 `aegis_request_payment`、`aegis_get_payment_status`、`aegis_cancel_payment`、`aegis_list_capabilities`；或 REST 直连 `POST /v1/request_action`、`GET /v1/actions/:id`、`GET /v1/payment_methods/capabilities` | ✅ REST 已验证 |
+| D1-2 | OpenClaw 能理解 Skill 用法 | 给 OpenClaw 提供 SKILL.md 或说明后，能正确调用 `aegis_request_payment` 并传入 amount、recipient、description | ✅ REST 示例可用 |
+| D1-3 | OpenClaw 能轮询状态 | 调用 `aegis_get_payment_status` 获取 action 状态，并能识别 `succeeded`、`denied`、`expired` | ✅ `GET /v1/actions/:id` 已验证 |
 
 ---
 
@@ -269,11 +294,11 @@ E2E-1 → E2E-2 → E2E-3 → E2E-4 → E2E-5   # 最后跑通全流程
 
 | # | 验收项 | 通过标准 | 状态 |
 |---|--------|----------|------|
-| D2-1 | 用户可访问添加卡页面 | 打开 `/dev/add-card` 或 `/settings/payment-methods`，页面正常加载 | ⬜ |
-| D2-2 | 用户可输入卡信息 | Stripe Elements 表单可输入卡号、有效期、CVC、持卡人；无报错 | ⬜ |
-| D2-3 | 提交后卡被保存 | 点击保存后，后端返回成功；`aegis_list_capabilities` 能查到该卡（掩码展示） | ⬜ |
-| D2-4 | 卡信息不落库 | 卡号、CVV 仅经 Stripe 令牌化，Aegis 数据库无明文存储 | ⬜ |
-| D2-5 | 登录/身份（可选） | 单用户 demo 可用 `usr_demo`；多人需有登录并绑定 user_id | ⬜ |
+| D2-1 | 用户可访问添加卡页面 | 打开 `/dev/add-card` 或 `/settings/payment-methods`，页面正常加载 | ✅ |
+| D2-2 | 用户可输入卡信息 | Stripe Elements 表单可输入卡号、有效期、CVC、持卡人；无报错 | ✅ |
+| D2-3 | 提交后卡被保存 | 点击保存后，后端返回成功；`aegis_list_capabilities` 能查到该卡（掩码展示） | ✅ |
+| D2-4 | 卡信息不落库 | 卡号、CVV 仅经 Stripe 令牌化，Aegis 数据库无明文存储 | ✅ |
+| D2-5 | 登录/身份（可选） | 单用户 demo 可用 `usr_demo`；多人需有登录并绑定 user_id | ✅ |
 
 ---
 
@@ -281,10 +306,10 @@ E2E-1 → E2E-2 → E2E-3 → E2E-4 → E2E-5   # 最后跑通全流程
 
 | # | 验收项 | 通过标准 | 状态 |
 |---|--------|----------|------|
-| D3-1 | OpenClaw 发起支付请求 | 调用 `aegis_request_payment(amount: "20", recipient_name: "Cursor", description: "Cursor Pro 月费")` 成功，返回 action_id | ⬜ |
-| D3-2 | 用户收到审批入口 | 通过 approval_url、邮件或 App 进入审批页，能看到金额、收款方、描述 | ⬜ |
-| D3-3 | 用户批准后扣款成功 | 用户点击批准 → `aegis_get_payment_status` 返回 `succeeded`；Stripe Dashboard 有对应 charge | ⬜ |
-| D3-4 | 扣款使用用户已添加的卡 | 扣款来自用户在阶段二添加的 PaymentMethod，非硬编码测试卡 | ⬜ |
+| D3-1 | OpenClaw 发起支付请求 | 调用 `aegis_request_payment(amount: "20", recipient_name: "Cursor", description: "Cursor Pro 月费")` 成功，返回 action_id | ✅ |
+| D3-2 | 用户收到审批入口 | 通过 approval_url、邮件或 App 进入审批页，能看到金额、收款方、描述 | ✅ |
+| D3-3 | 用户批准后扣款成功 | 用户点击批准 → `aegis_get_payment_status` 返回 `succeeded`；Stripe Dashboard 有对应 charge | ✅ |
+| D3-4 | 扣款使用用户已添加的卡 | 扣款来自用户在阶段二添加的 PaymentMethod，非硬编码测试卡 | ✅ |
 
 ---
 

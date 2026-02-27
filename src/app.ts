@@ -13,6 +13,7 @@ import { WebAuthnService } from './services/webauthn';
 import { WorkerScheduler } from './workers';
 import { createApiRouter } from './routes/api';
 import { createAppRouter } from './routes/app';
+import { createAuthRouter } from './routes/auth';
 import { createWebRouter } from './routes/web';
 
 export interface AppRuntime {
@@ -74,6 +75,23 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     res.json({ callbacks: testCallbackInbox });
   });
 
+  if (process.env.NODE_ENV === 'test') {
+    app.post('/_test/app-session', (req, res) => {
+      const userId = String(req.body?.user_id ?? 'usr_demo').trim();
+      const endUser = store.getEndUserById(userId);
+      if (!endUser || endUser.status !== 'active') {
+        return res.status(404).json({ error: 'USER_NOT_FOUND' });
+      }
+      const { token } = store.createAppSession(userId);
+      res.cookie(config.appSessionCookieName, token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 12 * 60 * 60 * 1000,
+      });
+      res.json({ ok: true, user_id: userId });
+    });
+  }
+
   app.post('/api/cron/tick', async (req, res) => {
     const secret = process.env.CRON_SECRET;
     const allowInsecureCron =
@@ -99,6 +117,7 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
     }
   });
 
+  app.use(createAuthRouter(service));
   app.use(createWebRouter(service, webauthn, adminAuth, sandboxFaults));
   app.use(createAppRouter(service));
   app.use(createApiRouter(service, sandboxFaults));

@@ -5,5 +5,11 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     testTimeout: 15000,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      include: ['src/**/*.ts', 'mcp-server/src/**/*.ts', 'sdk/typescript/src/**/*.ts'],
+      exclude: ['**/*.test.ts', '**/types.ts', 'src/server.ts'],
+    },
   },
 });

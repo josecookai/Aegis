@@ -94,6 +94,7 @@ export class AegisClient {
 
   async getStatus(actionId: string): Promise<ActionResponse> {
     const res = await fetch(`${this.baseUrl}/v1/actions/${encodeURIComponent(actionId)}`, {
+      method: 'GET',
       headers: this.headers(),
     });
     if (!res.ok) {
@@ -119,7 +120,7 @@ export class AegisClient {
   async capabilities(): Promise<CapabilitiesResponse> {
     const res = await fetch(
       `${this.baseUrl}/v1/payment_methods/capabilities?end_user_id=${encodeURIComponent(this.userId)}`,
-      { headers: this.headers() },
+      { method: 'GET', headers: this.headers() },
     );
     if (!res.ok) {
       const body = await res.text();

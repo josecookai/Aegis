@@ -8,20 +8,20 @@
 
 | 服务 | URL | 用途 |
 |------|-----|------|
-| 后端 | `https://holdis-xxx.vercel.app` | Agent API、Web 审批、健康检查 |
-| MCP | `https://holdis-mcp-xxx.up.railway.app` | OpenClaw / Manus 等远程 Agent 调用 |
+| **后端（REST API）** | `https://aegis-production-7cee.up.railway.app` | Agent 可直接调用 REST API（`/v1/request_action`、`/v1/actions/:id` 等），无需 MCP。Web 审批、健康检查 |
+| **MCP Server** | （可选） | 仅当客户端支持 MCP Streamable HTTP（SSE 会话）时使用。OpenClaw 若遇「Server not initialized」请改用 REST 直连，见 [OpenClaw-REST-API.md](OpenClaw-REST-API.md) |
 
-**验证结果：** 部署完成后执行 `./scripts/verify-deployment.sh <后端URL> <MCP_URL>`，将输出粘贴于下方。
+**验证结果：** 2026-02-24 Agent A 验收通过
 
 ```
-# 执行: ./scripts/verify-deployment.sh https://holdis-xxx.vercel.app https://holdis-mcp-xxx.up.railway.app
-# 输出示例:
+# 执行: ./scripts/verify-deployment.sh https://aegis-production-7cee.up.railway.app
+# 输出:
 # === Verifying Aegis deployment ===
 # 1. Backend health (GET /healthz)... OK
-# 2. MCP health (GET /health)... OK
-# 3. MCP tools list... OK
 # === Verification complete ===
 ```
+
+**Demo 一键验收：** `./scripts/e2e-demo-verify.sh` 或 `npm run e2e:demo`
 
 ---
 
@@ -218,6 +218,7 @@ curl -s -X POST https://your-mcp.up.railway.app/mcp \
 
 | 问题 | 处理 |
 |------|------|
+| OpenClaw MCP「Server not initialized」 | MCP 需 SSE 会话，OpenClaw 不支持。改用 REST API 直连后端，见 [OpenClaw-REST-API.md](OpenClaw-REST-API.md) |
 | Vercel 上 approval 链接 404 | 检查 `BASE_URL` 是否与部署域名一致 |
 | Workers 不执行 | Vercel：检查 Cron 是否启用、`CRON_SECRET` 是否设置；Railway：检查 `AUTO_START_WORKERS` |
 | MCP 返回 502 | 检查 `AEGIS_API_URL` 是否正确、后端是否可达 |
@@ -227,6 +228,7 @@ curl -s -X POST https://your-mcp.up.railway.app/mcp \
 
 ## 8. 相关文档
 
+- [OpenClaw-REST-API.md](OpenClaw-REST-API.md) — OpenClaw REST 直连（当 MCP 不可用时）
 - [Aegis-Implementation-Todos.md §6.1](../Aegis-Implementation-Todos.md#61-部署与公网可达g1)
 - [mcp-server/README.md](../mcp-server/README.md) — MCP HTTP 模式说明
 - [README.md](../README.md) — 本地启动方式
