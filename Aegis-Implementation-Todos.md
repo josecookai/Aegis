@@ -236,7 +236,7 @@ E2E-1 → E2E-2 → E2E-3 → E2E-4 → E2E-5   # 最后跑通全流程
 |---|------|------|
 | 1 | 文档 | REST 示例需含 `idempotency_key`、`recipient_reference`（已补充） |
 | 2 | API | `idempotency_key` 建议统一为 Header |
-| 3 | Dev | `POST /api/dev/actions/:id/decision` 需 admin 登录 |
+| 3 | Dev | `POST /api/dev/actions/:id/decision` 需 admin 登录（✅ 已由中间件保护，测试覆盖：`tests/app.test.ts`） |
 | 4 | MCP | `recipient_reference` 可扩展为可选参数 |
 
 ---
