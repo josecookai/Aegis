@@ -591,6 +591,82 @@ describe('Aegis MVP prototype', () => {
     expect(second.body.action.action_id).toBe(first.body.action.action_id);
   });
 
+  it('POST /v1/request_action accepts Idempotency-Key header without body idempotency_key', async () => {
+    const api = request(runtime.app);
+    const headerKey = 'idem_header_only_1';
+    const baseBody = {
+      end_user_id: 'usr_demo',
+      action_type: 'payment' as const,
+      callback_url: `${baseUrl}/_test/callback`,
+      details: {
+        amount: '8.00',
+        currency: 'USD',
+        recipient_name: 'Header Only Merchant',
+        description: 'Header only idempotency',
+        payment_rail: 'card' as const,
+        payment_method_preference: 'card_default',
+        recipient_reference: 'merchant_api:idem_header_only',
+      },
+    };
+
+    const first = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .set('Idempotency-Key', headerKey)
+      .send(baseBody)
+      .expect(201);
+    expect(first.headers['idempotency-key']).toBe(headerKey);
+
+    const replay = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .set('Idempotency-Key', headerKey)
+      .send(baseBody)
+      .expect(201);
+    expect(replay.headers['idempotency-key']).toBe(headerKey);
+    expect(replay.headers['idempotency-replayed']).toBe('true');
+    expect(replay.body.action.action_id).toBe(first.body.action.action_id);
+  });
+
+  it('POST /v1/request_action prefers Idempotency-Key header over body idempotency_key', async () => {
+    const api = request(runtime.app);
+    const headerKey = 'idem_header_precedence_1';
+    const body = {
+      idempotency_key: 'idem_body_should_be_ignored',
+      end_user_id: 'usr_demo',
+      action_type: 'payment' as const,
+      callback_url: `${baseUrl}/_test/callback`,
+      details: {
+        amount: '11.00',
+        currency: 'USD',
+        recipient_name: 'Header Precedence Merchant',
+        description: 'Header precedence idempotency',
+        payment_rail: 'card' as const,
+        payment_method_preference: 'card_default',
+        recipient_reference: 'merchant_api:idem_header_precedence',
+      },
+    };
+
+    const first = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .set('Idempotency-Key', headerKey)
+      .send(body)
+      .expect(201);
+
+    const second = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .set('Idempotency-Key', headerKey)
+      .send({ ...body, idempotency_key: 'idem_body_changed' })
+      .expect(201);
+
+    expect(first.headers['idempotency-key']).toBe(headerKey);
+    expect(second.headers['idempotency-key']).toBe(headerKey);
+    expect(second.headers['idempotency-replayed']).toBe('true');
+    expect(second.body.action.action_id).toBe(first.body.action.action_id);
+  });
+
   it('GET /v1/requests/:id returns same result as /v1/actions/:id', async () => {
     const api = request(runtime.app);
     const create = await api
@@ -619,6 +695,95 @@ describe('Aegis MVP prototype', () => {
     expect(viaRequests.body).toEqual(viaActions.body);
 
     await api.get('/v1/requests/nonexistent').set('x-aegis-api-key', 'aegis_demo_agent_key').expect(404);
+  });
+
+  it('covers API validation and dev route error paths', async () => {
+    const api = request(runtime.app);
+    const adminCookie = await adminLogin(api);
+
+    await api.get('/v1/payment_methods/capabilities').set('x-aegis-api-key', 'aegis_demo_agent_key').expect(400);
+    await api
+      .post('/v1/webhooks/test')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({ callback_url: 'not-a-url' })
+      .expect(400);
+
+    const created = await api
+      .post('/v1/request_action')
+      .set('x-aegis-api-key', 'aegis_demo_agent_key')
+      .send({
+        idempotency_key: 't_dev_error_paths_1',
+        end_user_id: 'usr_demo',
+        action_type: 'payment',
+        details: {
+          amount: '3.00',
+          currency: 'USD',
+          recipient_name: 'Error Path Merchant',
+          description: 'error paths',
+          payment_rail: 'card',
+          payment_method_preference: 'card_default',
+          recipient_reference: 'merchant_api:error_paths',
+        },
+      })
+      .expect(201);
+    const actionId = String(created.body.action.action_id);
+
+    await api.post(`/api/dev/actions/${actionId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'nope' }).expect(400);
+
+    await api
+      .post('/api/dev/sandbox/faults')
+      .set('Cookie', [adminCookie])
+      .send({ rail: 'card', mode: 'decline', scope: 'invalid_scope' })
+      .expect(400);
+    await api
+      .post('/api/dev/sandbox/faults')
+      .set('Cookie', [adminCookie])
+      .send({ rail: 'card', mode: 'invalid_mode', scope: 'once' })
+      .expect(400);
+    await api
+      .post('/api/dev/sandbox/faults')
+      .set('Cookie', [adminCookie])
+      .send({ rail: 'invalid_rail', mode: 'decline', scope: 'once' })
+      .expect(400);
+
+    await api
+      .post('/api/dev/sandbox/faults')
+      .set('Cookie', [adminCookie])
+      .send({ rail: 'card', mode: 'decline', scope: 'once' })
+      .expect(200);
+    await api
+      .post('/api/dev/sandbox/faults')
+      .set('Cookie', [adminCookie])
+      .send({ rail: 'crypto', mode: 'revert', scope: 'sticky' })
+      .expect(200);
+    await api.post('/api/dev/sandbox/faults/reset').set('Cookie', [adminCookie]).send({}).expect(200);
+    await api.post('/api/dev/sandbox/presets').set('Cookie', [adminCookie]).send({ preset: 'UNKNOWN' }).expect(400);
+    await api
+      .post('/api/dev/sandbox/presets')
+      .set('Cookie', [adminCookie])
+      .send({ preset: 'PSP_DECLINE_DEMO' })
+      .expect(200);
+
+    await api
+      .post('/api/dev/payment-methods')
+      .set('Cookie', [adminCookie])
+      .send({ payment_method_id: 'invalid', user_id: 'usr_demo' })
+      .expect(400);
+    await api
+      .post('/api/dev/payment-methods')
+      .set('Cookie', [adminCookie])
+      .send({ payment_method_id: 'pm_12345', user_id: 'usr_nonexistent' })
+      .expect(404);
+    await api.get('/api/dev/payment-methods?user_id=usr_nonexistent').set('Cookie', [adminCookie]).expect(404);
+    await api.delete('/api/dev/payment-methods/pm_missing?user_id=usr_demo').set('Cookie', [adminCookie]).expect(404);
+    await api.post('/api/dev/payment-methods/pm_missing/default').set('Cookie', [adminCookie]).send({ user_id: 'usr_demo' }).expect(404);
+
+    await api
+      .post('/api/dev/stripe/setup-test-card')
+      .set('Cookie', [adminCookie])
+      .send({ card_number: '4000000000000002' })
+      .expect(400);
+    await api.post('/api/dev/stripe/setup-test-card').set('Cookie', [adminCookie]).send({}).expect(400);
   });
 
   it('device registration: POST, GET, upsert, DELETE', async () => {
@@ -912,16 +1077,17 @@ describe('Aegis MVP prototype', () => {
 
   it('POST /auth/magic-link/request sends login email', async () => {
     const api = request(runtime.app);
+    const targetEmail = 'magiclink-test@example.com';
     const res = await api
       .post('/auth/magic-link/request')
-      .send({ email: 'magiclink-test@example.com' })
+      .send({ email: targetEmail })
       .expect(200);
     expect(res.body.ok).toBe(true);
-    const outbox = runtime.service.getStore().listEmailOutbox(20);
+    const outbox = runtime.service.getStore().listEmailOutbox(200);
     const loginEmail = outbox.find((e: any) => {
       try {
         const m = JSON.parse(String(e.metadata_json || '{}'));
-        return m.type === 'login_magic_link';
+        return m.type === 'login_magic_link' && String(e.to_email).toLowerCase() === targetEmail;
       } catch {
         return false;
       }

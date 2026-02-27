@@ -30,9 +30,11 @@ components:
   schemas:
     RequestAction:
       type: object
-      required: [idempotency_key, end_user_id, action_type, details]
+      required: [end_user_id, action_type, details]
       properties:
-        idempotency_key: { type: string }
+        idempotency_key:
+          type: string
+          description: Backward-compatible body field. Prefer Idempotency-Key header.
         end_user_id: { type: string }
         action_type: { type: string, enum: [payment] }
         callback_url: { type: string, format: uri, description: Optional; omit for polling mode }
@@ -115,6 +117,12 @@ paths:
     post:
       summary: Create a payment authorization request
       security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+          description: Preferred idempotency key. If present, takes precedence over body idempotency_key.
       requestBody:
         required: true
         content:

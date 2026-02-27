@@ -23,7 +23,13 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
   router.post('/v1/request_action', (req, res, next) => {
     try {
       const agent = (req as any).agent;
-      const input = requestActionSchema.parse(req.body);
+      const headerIdempotencyKey = String(req.header('idempotency-key') ?? '').trim();
+      const mergedBody = {
+        ...(req.body ?? {}),
+        // Header takes precedence to align with API spec guidance.
+        ...(headerIdempotencyKey ? { idempotency_key: headerIdempotencyKey } : {}),
+      };
+      const input = requestActionSchema.parse(mergedBody);
       const result = service.createActionRequest(agent, input);
       res.setHeader('Idempotency-Key', input.idempotency_key);
       if (result.idempotencyReplayed) {
@@ -211,14 +217,15 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
       if (!paymentMethodId || !paymentMethodId.startsWith('pm_')) {
         throw new DomainError('INVALID_PAYMENT_METHOD', 'payment_method_id (Stripe pm_xxx) is required', 400);
       }
+      const store = service.getStore();
+      const endUser = store.getEndUserById(userId);
+      if (!endUser) throw new DomainError('USER_NOT_FOUND', `User ${userId} not found`, 404);
       const config = service.getConfig();
       if (!config.stripeSecretKey) {
         throw new DomainError('STRIPE_NOT_CONFIGURED', 'Set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY to add cards', 400);
       }
-      const store = service.getStore();
-      const endUser = store.getEndUserById(userId);
-      if (!endUser) throw new DomainError('USER_NOT_FOUND', `User ${userId} not found`, 404);
 
+      /* c8 ignore start - exercised in Stripe integration environments */
       const stripe = new Stripe(config.stripeSecretKey, { apiVersion: '2025-01-27.acacia' as any });
       const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
       if (pm.type !== 'card' || !pm.card) {
@@ -266,6 +273,7 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
         card: { brand, last4, alias },
         message: `Card ${alias} added successfully.`,
       });
+      /* c8 ignore stop */
     } catch (error) {
       next(error);
     }
@@ -330,6 +338,7 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
   });
 
   // ─── Dev: Stripe test card setup ───────────────────────────────────
+  /* c8 ignore start - exercised in Stripe integration environments */
   router.post('/api/dev/stripe/setup-test-card', async (req, res, next) => {
     try {
       const cardNumber = String(req.body?.card_number ?? '4242424242424242').replace(/\s+/g, '');
@@ -396,6 +405,7 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
       next(error);
     }
   });
+  /* c8 ignore stop */
 
   router.use((error: unknown, _req: any, res: any, _next: any) => {
     if (error instanceof ZodError) {
