@@ -442,9 +442,10 @@ describe('Aegis MVP prototype', () => {
     expect(final.body.action.status).toBe('succeeded');
   });
 
-  it('app approval API: GET/POST by action_id+user_id (no token needed)', async () => {
+  it('app approval API: GET/POST by action_id requires app session', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);
+    const appCookie = await getAppSessionCookie(api, 'usr_demo');
     const create = await api
       .post('/v1/request_action')
       .set('x-aegis-api-key', 'aegis_demo_agent_key')
@@ -467,22 +468,18 @@ describe('Aegis MVP prototype', () => {
 
     const actionId = String(create.body.action.action_id);
 
-    const getRes = await api
-      .get(`/api/app/approval?action_id=${actionId}&user_id=usr_demo`)
-      .expect(200);
+    const getRes = await api.get(`/api/app/approval?action_id=${actionId}`).set('Cookie', [appCookie]).expect(200);
     expect(getRes.body.valid).toBe(true);
     expect(getRes.body.already_decided).toBe(false);
     expect(getRes.body.action.details.amount).toBe('18.00');
     expect(getRes.body.action.created_at).toBeTruthy();
 
-    const wrongUser = await api
-      .get(`/api/app/approval?action_id=${actionId}&user_id=usr_other`)
-      .expect(403);
-    expect(wrongUser.body.error).toBe('INVALID_USER');
+    await api.get(`/api/app/approval?action_id=${actionId}`).expect(401);
 
     await api
       .post('/api/app/approval/decision')
-      .send({ action_id: actionId, user_id: 'usr_demo', decision: 'approve', decision_source: 'app_biometric' })
+      .set('Cookie', [appCookie])
+      .send({ action_id: actionId, decision: 'approve', decision_source: 'app_biometric' })
       .expect(200);
 
     await api.post('/api/dev/workers/tick').set('Cookie', [adminCookie]).send({}).expect(200);
@@ -494,6 +491,7 @@ describe('Aegis MVP prototype', () => {
   it('GET /api/app/pending returns only awaiting_approval actions for user', async () => {
     const api = request(runtime.app);
     const adminCookie = await adminLogin(api);
+    const appCookie = await getAppSessionCookie(api, 'usr_demo');
 
     const makeAction = async (idempKey: string, amount: string) => {
       const res = await api
@@ -523,7 +521,7 @@ describe('Aegis MVP prototype', () => {
     const deniedId = await makeAction('t_pending_list_denied', '3.00');
     await api.post(`/api/dev/actions/${deniedId}/decision`).set('Cookie', [adminCookie]).send({ decision: 'deny' }).expect(200);
 
-    const pendingRes = await api.get('/api/app/pending?user_id=usr_demo').expect(200);
+    const pendingRes = await api.get('/api/app/pending').set('Cookie', [appCookie]).expect(200);
     expect(pendingRes.body.count).toBeGreaterThanOrEqual(2);
     const pendingIds = pendingRes.body.items.map((i: any) => i.action_id);
     expect(pendingIds).toContain(pendingId1);
@@ -533,17 +531,15 @@ describe('Aegis MVP prototype', () => {
       expect(item.status).toBe('awaiting_approval');
     }
 
-    const emptyRes = await api.get('/api/app/pending?user_id=usr_nonexistent').expect(403);
-    expect(emptyRes.body.error).toBe('INVALID_USER');
-
-    const missingRes = await api.get('/api/app/pending').expect(400);
-    expect(missingRes.body.error).toBe('MISSING_USER_ID');
+    const unauthorizedRes = await api.get('/api/app/pending').expect(401);
+    expect(unauthorizedRes.body.error).toBe('UNAUTHORIZED');
   });
 
   it('GET /api/app/history returns all actions for user sorted by created_at DESC', async () => {
     const api = request(runtime.app);
+    const appCookie = await getAppSessionCookie(api, 'usr_demo');
 
-    const historyRes = await api.get('/api/app/history?user_id=usr_demo&limit=50&offset=0').expect(200);
+    const historyRes = await api.get('/api/app/history?limit=50&offset=0').set('Cookie', [appCookie]).expect(200);
     expect(historyRes.body.items.length).toBeGreaterThanOrEqual(3);
     expect(typeof historyRes.body.total).toBe('number');
     expect(historyRes.body.limit).toBe(50);
@@ -553,15 +549,12 @@ describe('Aegis MVP prototype', () => {
     expect(statuses.some((s: string) => s === 'awaiting_approval')).toBe(true);
     expect(statuses.some((s: string) => s !== 'awaiting_approval')).toBe(true);
 
-    const paginatedRes = await api.get('/api/app/history?user_id=usr_demo&limit=2&offset=0').expect(200);
+    const paginatedRes = await api.get('/api/app/history?limit=2&offset=0').set('Cookie', [appCookie]).expect(200);
     expect(paginatedRes.body.items.length).toBeLessThanOrEqual(2);
     expect(paginatedRes.body.total).toBe(historyRes.body.total);
 
-    const emptyRes = await api.get('/api/app/history?user_id=usr_nonexistent').expect(403);
-    expect(emptyRes.body.error).toBe('INVALID_USER');
-
-    const missingRes = await api.get('/api/app/history').expect(400);
-    expect(missingRes.body.error).toBe('MISSING_USER_ID');
+    const unauthorizedRes = await api.get('/api/app/history').expect(401);
+    expect(unauthorizedRes.body.error).toBe('UNAUTHORIZED');
   });
 
   it('GET /api/app/admin/history supports status filter and keeps admin auth', async () => {
@@ -816,46 +809,49 @@ describe('Aegis MVP prototype', () => {
 
   it('device registration: POST, GET, upsert, DELETE', async () => {
     const api = request(runtime.app);
+    const appCookie = await getAppSessionCookie(api, 'usr_demo');
 
     const reg1 = await api
       .post('/api/app/devices')
-      .send({ user_id: 'usr_demo', platform: 'ios', push_token: 'apns_token_abc' })
+      .set('Cookie', [appCookie])
+      .send({ platform: 'ios', push_token: 'apns_token_abc' })
       .expect(200);
     expect(reg1.body.ok).toBe(true);
     expect(reg1.body.device_id).toBeTruthy();
     const deviceId = reg1.body.device_id;
 
-    const list1 = await api.get('/api/app/devices?user_id=usr_demo').expect(200);
+    const list1 = await api.get('/api/app/devices').set('Cookie', [appCookie]).expect(200);
     expect(list1.body.devices.some((d: any) => d.id === deviceId && d.push_token === 'apns_token_abc')).toBe(true);
 
     const reg2 = await api
       .post('/api/app/devices')
-      .send({ user_id: 'usr_demo', platform: 'ios', push_token: 'apns_token_updated' })
+      .set('Cookie', [appCookie])
+      .send({ platform: 'ios', push_token: 'apns_token_updated' })
       .expect(200);
     expect(reg2.body.device_id).toBe(deviceId);
 
-    const list2 = await api.get('/api/app/devices?user_id=usr_demo').expect(200);
+    const list2 = await api.get('/api/app/devices').set('Cookie', [appCookie]).expect(200);
     const iosDevice = list2.body.devices.find((d: any) => d.id === deviceId);
     expect(iosDevice.push_token).toBe('apns_token_updated');
 
     const regAndroid = await api
       .post('/api/app/devices')
-      .send({ user_id: 'usr_demo', platform: 'android', push_token: 'fcm_token_xyz' })
+      .set('Cookie', [appCookie])
+      .send({ platform: 'android', push_token: 'fcm_token_xyz' })
       .expect(200);
     expect(regAndroid.body.device_id).toBeTruthy();
     expect(regAndroid.body.device_id).not.toBe(deviceId);
 
-    await api.delete(`/api/app/devices/${deviceId}?user_id=usr_demo`).expect(200);
-    const list3 = await api.get('/api/app/devices?user_id=usr_demo').expect(200);
+    await api.delete(`/api/app/devices/${deviceId}`).set('Cookie', [appCookie]).expect(200);
+    const list3 = await api.get('/api/app/devices').set('Cookie', [appCookie]).expect(200);
     expect(list3.body.devices.some((d: any) => d.id === deviceId)).toBe(false);
 
-    await api.delete('/api/app/devices/nonexistent?user_id=usr_demo').expect(404);
-    await api.delete(`/api/app/devices/${regAndroid.body.device_id}?user_id=usr_nonexistent`).expect(403);
+    await api.delete('/api/app/devices/nonexistent').set('Cookie', [appCookie]).expect(404);
+    await api.delete(`/api/app/devices/${regAndroid.body.device_id}`).expect(401);
 
-    await api.post('/api/app/devices').send({ user_id: 'usr_demo' }).expect(400);
-    await api.post('/api/app/devices').send({ user_id: 'usr_demo', platform: 'windows', push_token: 'x' }).expect(400);
-    const missingUserId = await api.get('/api/app/devices');
-    expect([400, 401]).toContain(missingUserId.status);
+    await api.post('/api/app/devices').set('Cookie', [appCookie]).send({}).expect(400);
+    await api.post('/api/app/devices').set('Cookie', [appCookie]).send({ platform: 'windows', push_token: 'x' }).expect(400);
+    await api.get('/api/app/devices').expect(401);
   });
 
   it('webhook deliveries include X-Aegis-Signature header', async () => {
@@ -909,6 +905,7 @@ describe('Aegis MVP prototype', () => {
 
   it('rejects action_id mobile approval flows for inactive users', async () => {
     const api = request(runtime.app);
+    const appCookie = await getAppSessionCookie(api, 'usr_demo');
     const create = await api
       .post('/v1/request_action')
       .set('x-aegis-api-key', 'aegis_demo_agent_key')
@@ -932,10 +929,11 @@ describe('Aegis MVP prototype', () => {
     const actionId = String(create.body.action.action_id);
     runtime.service.getStore().getRawDb().prepare('UPDATE end_users SET status = ? WHERE id = ?').run('inactive', 'usr_demo');
     try {
-      await api.get(`/api/app/approval?action_id=${encodeURIComponent(actionId)}&user_id=usr_demo`).expect(403);
+      await api.get(`/api/app/approval?action_id=${encodeURIComponent(actionId)}`).set('Cookie', [appCookie]).expect(403);
       await api
         .post('/api/app/approval/decision')
-        .send({ action_id: actionId, user_id: 'usr_demo', decision: 'approve', decision_source: 'web_magic_link' })
+        .set('Cookie', [appCookie])
+        .send({ action_id: actionId, decision: 'approve', decision_source: 'web_magic_link' })
         .expect(403);
     } finally {
       runtime.service.getStore().getRawDb().prepare('UPDATE end_users SET status = ? WHERE id = ?').run('active', 'usr_demo');
@@ -944,6 +942,7 @@ describe('Aegis MVP prototype', () => {
 
   it('rejects action_id approval decision for non-target active user with explicit error code', async () => {
     const api = request(runtime.app);
+    const appCookie = await getAppSessionCookie(api, 'usr_demo');
     const create = await api
       .post('/v1/request_action')
       .set('x-aegis-api-key', 'aegis_demo_agent_key')
@@ -971,6 +970,7 @@ describe('Aegis MVP prototype', () => {
 
     const res = await api
       .post('/api/app/approval/decision')
+      .set('Cookie', [appCookie])
       .send({ action_id: actionId, user_id: 'usr_other_active', decision: 'approve', decision_source: 'app_biometric' })
       .expect(403);
 

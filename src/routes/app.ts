@@ -31,32 +31,6 @@ function requireAppSession(service: AegisService) {
   };
 }
 
-/**
- * Validates that the supplied user_id belongs to an active end user.
- * NOTE: This is NOT full authentication — it only prevents calls with
- * unknown/inactive user IDs. A proper login + session system is required
- * before production launch. See TODO below.
- */
-function requireValidUser(service: AegisService) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    // TODO(auth): Replace this with real session/JWT auth before production.
-    // Currently there is no proof that the caller IS the user — only that the
-    // user_id exists. This is acceptable for the MVP demo but is a security
-    // gap that MUST be closed before any real funds are handled.
-    const userId = String((req.query.user_id ?? req.body?.user_id) ?? '').trim();
-    if (!userId) {
-      return next(new DomainError('MISSING_USER_ID', 'user_id is required', 400));
-    }
-    const endUser = service.getStore().getEndUserById(userId);
-    if (!endUser || endUser.status !== 'active') {
-      return next(new DomainError('INVALID_USER', 'Unknown or inactive user', 403));
-    }
-    (req as any).validatedUserId = userId;
-    (req as any).validatedEndUser = endUser;
-    next();
-  };
-}
-
 function assertActiveUserForActionIdBranch(service: AegisService, userId: string): void {
   const endUser = service.getStore().getEndUserById(userId);
   if (!endUser || endUser.status !== 'active') {
@@ -71,9 +45,9 @@ function assertActiveUserForActionIdBranch(service: AegisService, userId: string
 export function createAppRouter(service: AegisService): Router {
   const router = Router();
 
-  router.get('/api/app/pending', requireValidUser(service), (req, res, next) => {
+  router.get('/api/app/pending', requireAppSession(service), (req, res, next) => {
     try {
-      const userId = (req as any).validatedUserId as string;
+      const userId = (req as any).appUserId as string;
       const store = service.getStore();
       const items = store.listActionsByUserAndStatus(userId, 'awaiting_approval');
       res.json({
@@ -85,9 +59,9 @@ export function createAppRouter(service: AegisService): Router {
     }
   });
 
-  router.get('/api/app/history', requireValidUser(service), (req, res, next) => {
+  router.get('/api/app/history', requireAppSession(service), (req, res, next) => {
     try {
-      const userId = (req as any).validatedUserId as string;
+      const userId = (req as any).appUserId as string;
       const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
       const offset = Math.max(0, Number(req.query.offset) || 0);
       const store = service.getStore();
@@ -139,11 +113,15 @@ export function createAppRouter(service: AegisService): Router {
       let view: ReturnType<typeof service.getApprovalView | typeof service.getApprovalViewByActionId>;
       if (token) {
         view = service.getApprovalView(token);
-      } else if (actionId && userId) {
-        assertActiveUserForActionIdBranch(service, userId);
-        view = service.getApprovalViewByActionId(actionId, userId);
+      } else if (actionId) {
+        const sessionUserId = getSessionUserIdOrThrow(service, req);
+        if (userId && userId !== sessionUserId) {
+          throw new DomainError('APPROVAL_NOT_ASSIGNED_TO_USER', 'Action is not assigned to this user', 403);
+        }
+        assertActiveUserForActionIdBranch(service, sessionUserId);
+        view = service.getApprovalViewByActionId(actionId, sessionUserId);
       } else {
-        throw new DomainError('MISSING_PARAMS', 'Provide token OR action_id+user_id', 400);
+        throw new DomainError('MISSING_PARAMS', 'Provide token OR action_id', 400);
       }
 
       if (!view.valid) {
@@ -177,8 +155,8 @@ export function createAppRouter(service: AegisService): Router {
       const actionId = String(req.body?.action_id ?? '').trim();
       const userId = String(req.body?.user_id ?? '').trim();
 
-      if (!token && !(actionId && userId)) {
-        throw new DomainError('MISSING_PARAMS', 'Provide token OR action_id+user_id', 400);
+      if (!token && !actionId) {
+        throw new DomainError('MISSING_PARAMS', 'Provide token OR action_id', 400);
       }
       const decision = String(req.body?.decision ?? '').toLowerCase();
       if (decision !== 'approve' && decision !== 'deny') {
@@ -193,8 +171,12 @@ export function createAppRouter(service: AegisService): Router {
       if (token) {
         action = service.submitApprovalDecision(token, decision as 'approve' | 'deny', sourceRaw as DecisionSource);
       } else {
-        assertActiveUserForActionIdBranch(service, userId);
-        action = service.submitDecisionByActionId(actionId, userId, decision as 'approve' | 'deny', sourceRaw as DecisionSource);
+        const sessionUserId = getSessionUserIdOrThrow(service, req);
+        if (userId && userId !== sessionUserId) {
+          throw new DomainError('APPROVAL_NOT_ASSIGNED_TO_USER', 'Action is not assigned to this user', 403);
+        }
+        assertActiveUserForActionIdBranch(service, sessionUserId);
+        action = service.submitDecisionByActionId(actionId, sessionUserId, decision as 'approve' | 'deny', sourceRaw as DecisionSource);
       }
 
       res.json({
@@ -208,9 +190,9 @@ export function createAppRouter(service: AegisService): Router {
     }
   });
 
-  router.post('/api/app/devices', requireValidUser(service), (req, res, next) => {
+  router.post('/api/app/devices', requireAppSession(service), (req, res, next) => {
     try {
-      const userId = (req as any).validatedUserId as string;
+      const userId = (req as any).appUserId as string;
       const platform = String(req.body?.platform ?? '').trim();
       const pushToken = String(req.body?.push_token ?? '').trim();
       if (platform !== 'ios' && platform !== 'android') {
@@ -224,9 +206,9 @@ export function createAppRouter(service: AegisService): Router {
     }
   });
 
-  router.get('/api/app/devices', requireValidUser(service), (req, res, next) => {
+  router.get('/api/app/devices', requireAppSession(service), (req, res, next) => {
     try {
-      const userId = (req as any).validatedUserId as string;
+      const userId = (req as any).appUserId as string;
       const devices = service.getStore().listDevicesForUser(userId);
       res.json({ devices });
     } catch (error) {
@@ -234,9 +216,9 @@ export function createAppRouter(service: AegisService): Router {
     }
   });
 
-  router.delete('/api/app/devices/:id', requireValidUser(service), (req, res, next) => {
+  router.delete('/api/app/devices/:id', requireAppSession(service), (req, res, next) => {
     try {
-      const userId = (req as any).validatedUserId as string;
+      const userId = (req as any).appUserId as string;
       const deviceId = String(req.params.id);
       const store = service.getStore();
       const devices = store.listDevicesForUser(userId);
@@ -460,4 +442,17 @@ export function createAppRouter(service: AegisService): Router {
   });
 
   return router;
+}
+
+function getSessionUserIdOrThrow(service: AegisService, req: Request): string {
+  const config = service.getConfig();
+  const token = (req.cookies?.[config.appSessionCookieName] ?? req.cookies?.aegis_app_session) as string | undefined;
+  if (!token) {
+    throw new DomainError('UNAUTHORIZED', 'App session required. Log in via magic link.', 401);
+  }
+  const session = service.getStore().findAppSessionByToken(token);
+  if (!session) {
+    throw new DomainError('UNAUTHORIZED', 'Invalid or expired session', 401);
+  }
+  return session.endUserId;
 }
