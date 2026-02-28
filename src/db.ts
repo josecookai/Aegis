@@ -261,6 +261,26 @@ function migrate(db: Database.Database): void {
       FOREIGN KEY (end_user_id) REFERENCES end_users(id),
       FOREIGN KEY (plan_id) REFERENCES plans(id)
     );
+
+    CREATE TABLE IF NOT EXISTS risk_policies (
+      id TEXT PRIMARY KEY,
+      single_tx_limit_cents INTEGER NOT NULL,
+      daily_total_limit_cents INTEGER NOT NULL,
+      allowlist_enabled INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS recipient_allowlist (
+      recipient_reference TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS key_rate_limits (
+      agent_id TEXT PRIMARY KEY,
+      requests_per_minute INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    );
   `);
 
   // Backfill owner_user_id for existing agents table (SQLite: add column if missing)
@@ -359,6 +379,18 @@ function seed(db: Database.Database): void {
   const userPlanCount = db.prepare('SELECT COUNT(1) as c FROM user_plans WHERE end_user_id = ?').get('usr_demo') as { c: number };
   if (userPlanCount.c === 0) {
     db.prepare('INSERT INTO user_plans (end_user_id, plan_id, created_at) VALUES (?, ?, ?)').run('usr_demo', 'plan_free', now);
+  }
+
+  const riskPolicyCount = db.prepare('SELECT COUNT(1) as c FROM risk_policies').get() as { c: number };
+  if (riskPolicyCount.c === 0) {
+    db.prepare(
+      'INSERT INTO risk_policies (id, single_tx_limit_cents, daily_total_limit_cents, allowlist_enabled, updated_at) VALUES (?, ?, ?, ?, ?)'
+    ).run('global', 200_000, 1_000_000, 0, now);
+  }
+
+  const keyRateCount = db.prepare('SELECT COUNT(1) as c FROM key_rate_limits WHERE agent_id = ?').get('agt_demo') as { c: number };
+  if (keyRateCount.c === 0) {
+    db.prepare('INSERT INTO key_rate_limits (agent_id, requests_per_minute, updated_at) VALUES (?, ?, ?)').run('agt_demo', 60, now);
   }
 
   const existingDocs = db.prepare('SELECT COUNT(1) as c FROM email_outbox').get() as { c: number };

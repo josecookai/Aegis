@@ -209,6 +209,104 @@ export function createApiRouter(service: AegisService, sandboxFaults: SandboxFau
     }
   });
 
+  // ─── Admin Control (internal) ───────────────────────────────────────
+  router.get('/api/dev/admin-control/keys', (_req, res, next) => {
+    try {
+      res.json({ keys: service.listAgentKeyControls() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/api/dev/admin-control/keys/:agentId', (req, res, next) => {
+    try {
+      res.json({ key: service.getAgentKeyControl(String(req.params.agentId)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/api/dev/admin-control/keys/:agentId/status', (req, res, next) => {
+    try {
+      const status = String(req.body?.status ?? '').trim();
+      if (status !== 'active' && status !== 'disabled') {
+        throw new DomainError('INVALID_STATUS', 'status must be active or disabled', 400);
+      }
+      const key = service.setAgentKeyStatus(String(req.params.agentId), status);
+      res.json({ ok: true, key });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/api/dev/admin-control/keys/:agentId/rotate', (req, res, next) => {
+    try {
+      const rotated = service.rotateAgentCredentials(String(req.params.agentId));
+      res.json({ ok: true, ...rotated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put('/api/dev/admin-control/keys/:agentId/rate-limit', (req, res, next) => {
+    try {
+      const requestsPerMinute = Number(req.body?.requests_per_minute);
+      const rate = service.setAgentRateLimit(String(req.params.agentId), requestsPerMinute);
+      res.json({ ok: true, rate_limit: rate });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/api/dev/admin-control/policies/risk', (_req, res, next) => {
+    try {
+      res.json({ policy: service.getRiskPolicy() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put('/api/dev/admin-control/policies/risk', (req, res, next) => {
+    try {
+      const policy = service.updateRiskPolicy({
+        single_tx_limit_cents: Number(req.body?.single_tx_limit_cents),
+        daily_total_limit_cents: Number(req.body?.daily_total_limit_cents),
+        allowlist_enabled: Boolean(req.body?.allowlist_enabled),
+      });
+      res.json({ ok: true, policy });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/api/dev/admin-control/policies/allowlist', (_req, res, next) => {
+    try {
+      const policy = service.getRiskPolicy();
+      const recipients = service.getRecipientAllowlist();
+      res.json({ allowlist_enabled: policy.allowlist_enabled, recipients });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put('/api/dev/admin-control/policies/allowlist', (req, res, next) => {
+    try {
+      const recipientsRaw = Array.isArray(req.body?.recipients) ? req.body.recipients : [];
+      const recipients = recipientsRaw.map((v: unknown) => String(v)).filter(Boolean);
+      if (typeof req.body?.allowlist_enabled !== 'undefined') {
+        service.updateRiskPolicy({
+          ...service.getRiskPolicy(),
+          allowlist_enabled: Boolean(req.body.allowlist_enabled),
+        });
+      }
+      const updated = service.updateRecipientAllowlist(recipients);
+      const policy = service.getRiskPolicy();
+      res.json({ ok: true, allowlist_enabled: policy.allowlist_enabled, recipients: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // ─── Dev: Payment methods (Stripe Elements add card) ───────────────
   router.post('/api/dev/payment-methods', async (req, res, next) => {
     try {
