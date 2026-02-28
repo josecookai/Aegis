@@ -27,6 +27,7 @@ export class ExecutionEngine {
   constructor(
     private readonly sandboxFaults?: SandboxFaultService,
     stripeSecretKey?: string | null,
+    private readonly allowMockCardExecution = process.env.NODE_ENV !== 'production',
   ) {
     if (stripeSecretKey) {
       this.stripe = new Stripe(stripeSecretKey, { apiVersion: '2025-01-27.acacia' as any });
@@ -73,6 +74,15 @@ export class ExecutionEngine {
 
     if (this.stripe) {
       return this.executeCardStripe(action, paymentMethod);
+    }
+    if (!this.allowMockCardExecution) {
+      return {
+        success: false,
+        rail: 'card',
+        provider: 'stripe',
+        errorCode: 'PROVIDER_UNAVAILABLE',
+        errorMessage: 'Stripe is not configured for card execution in this environment',
+      };
     }
     return this.executeCardMock(action, paymentMethod);
   }

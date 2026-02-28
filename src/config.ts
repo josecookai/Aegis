@@ -16,6 +16,7 @@ export interface AppConfig {
   appSessionTtlMinutes: number;
   stripeSecretKey: string | null;
   stripePublishableKey: string | null;
+  allowMockCardExecution: boolean;
   googleClientId: string | null;
   googleClientSecret: string | null;
 }
@@ -49,6 +50,7 @@ export function loadConfig(): AppConfig {
     appSessionTtlMinutes: Number(process.env.APP_SESSION_TTL_MINUTES ?? 10080), // 7 days
     stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? null,
     stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+    allowMockCardExecution: boolFromEnv(process.env.ALLOW_MOCK_CARD_EXECUTION, process.env.NODE_ENV !== 'production'),
     googleClientId: process.env.GOOGLE_CLIENT_ID ?? null,
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? null,
   };

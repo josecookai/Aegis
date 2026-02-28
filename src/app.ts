@@ -32,7 +32,7 @@ export function createAegisApp(partialConfig?: Partial<AppConfig>): AppRuntime {
   const store = new AegisStore(db);
   const sandboxFaults = new SandboxFaultService();
   const notifications = new NotificationService(store, config);
-  const executionEngine = new ExecutionEngine(sandboxFaults, config.stripeSecretKey);
+  const executionEngine = new ExecutionEngine(sandboxFaults, config.stripeSecretKey, config.allowMockCardExecution);
   const webhookSender = new WebhookSender(config);
   const service = new AegisService(store, notifications, executionEngine, webhookSender, config);
   const adminAuth = new AdminAuthService(config);
