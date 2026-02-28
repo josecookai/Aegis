@@ -34,7 +34,7 @@ function mockPaymentMethod(rail: 'card' | 'crypto'): PaymentMethodRecord {
 
 describe('execution', () => {
   describe('ExecutionEngine without Stripe', () => {
-    const engine = new ExecutionEngine(undefined, undefined);
+    const engine = new ExecutionEngine(undefined, undefined, true);
 
     it('isStripeEnabled is false', () => {
       expect(engine.isStripeEnabled).toBe(false);
@@ -64,13 +64,23 @@ describe('execution', () => {
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('INVALID_PAYMENT_METHOD');
     });
+
+    it('returns PROVIDER_UNAVAILABLE when mock fallback is disabled', async () => {
+      const strictEngine = new ExecutionEngine(undefined, undefined, false);
+      const action = mockAction({ payment_rail: 'card' });
+      const pm = mockPaymentMethod('card');
+      const result = await strictEngine.execute(action, pm);
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('PROVIDER_UNAVAILABLE');
+      expect(result.provider).toBe('stripe');
+    });
   });
 
   describe('ExecutionEngine with sandbox fault', () => {
     it('injects decline for card', async () => {
       const sandbox = new SandboxFaultService();
       sandbox.setCardFault('decline');
-      const engine = new ExecutionEngine(sandbox, undefined);
+      const engine = new ExecutionEngine(sandbox, undefined, true);
       const action = mockAction({ payment_rail: 'card' });
       const pm = mockPaymentMethod('card');
       const result = await engine.execute(action, pm);
@@ -81,7 +91,7 @@ describe('execution', () => {
     it('injects timeout for card', async () => {
       const sandbox = new SandboxFaultService();
       sandbox.setCardFault('timeout');
-      const engine = new ExecutionEngine(sandbox, undefined);
+      const engine = new ExecutionEngine(sandbox, undefined, true);
       const action = mockAction({ payment_rail: 'card' });
       const pm = mockPaymentMethod('card');
       const result = await engine.execute(action, pm);
@@ -92,7 +102,7 @@ describe('execution', () => {
     it('fault is consumed once (scope once)', async () => {
       const sandbox = new SandboxFaultService();
       sandbox.setCardFault('decline', 'once');
-      const engine = new ExecutionEngine(sandbox, undefined);
+      const engine = new ExecutionEngine(sandbox, undefined, true);
       const action = mockAction({ payment_rail: 'card', recipient_reference: 'merchant_api:test' });
       const pm = mockPaymentMethod('card');
       const r1 = await engine.execute(action, pm);
