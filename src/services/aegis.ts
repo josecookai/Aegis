@@ -1,5 +1,5 @@
 import { AppConfig } from '../config';
-import { safeJsonParse } from '../lib/crypto';
+import { randomId, safeJsonParse, sha256 } from '../lib/crypto';
 import { nowIso } from '../lib/time';
 import { TERMINAL_STATUSES } from '../types';
 import {
@@ -46,6 +46,97 @@ export class AegisService {
 
   getConfig(): AppConfig {
     return this.config;
+  }
+
+  listAgentKeyControls() {
+    return this.store.listAgents().map((a) => {
+      const rate = this.store.getKeyRateLimit(a.id);
+      return {
+        agent_id: a.id,
+        name: a.name,
+        status: a.status,
+        requests_per_minute: rate?.requests_per_minute ?? null,
+      };
+    });
+  }
+
+  getAgentKeyControl(agentId: string) {
+    const agent = this.store.getAgentById(agentId);
+    if (!agent) throw new DomainError('NOT_FOUND', 'Agent not found', 404);
+    const rate = this.store.getKeyRateLimit(agentId);
+    return {
+      agent_id: agent.id,
+      name: agent.name,
+      status: agent.status,
+      requests_per_minute: rate?.requests_per_minute ?? null,
+    };
+  }
+
+  setAgentKeyStatus(agentId: string, status: 'active' | 'disabled') {
+    if (!this.store.setAgentStatus(agentId, status)) {
+      throw new DomainError('NOT_FOUND', 'Agent not found', 404);
+    }
+    return this.getAgentKeyControl(agentId);
+  }
+
+  rotateAgentCredentials(agentId: string) {
+    const agent = this.store.getAgentById(agentId);
+    if (!agent) throw new DomainError('NOT_FOUND', 'Agent not found', 404);
+    const rawApiKey = `aegis_${randomId('key').replace(/^key_/, '')}`;
+    const webhookSecret = `whsec_${randomId('wh').replace(/^wh_/, '')}`;
+    this.store.rotateAgentSecrets(agentId, sha256(rawApiKey), webhookSecret);
+    return { agent_id: agentId, api_key: rawApiKey, webhook_secret: webhookSecret };
+  }
+
+  setAgentRateLimit(agentId: string, requestsPerMinute: number) {
+    const agent = this.store.getAgentById(agentId);
+    if (!agent) throw new DomainError('NOT_FOUND', 'Agent not found', 404);
+    if (!Number.isInteger(requestsPerMinute) || requestsPerMinute <= 0) {
+      throw new DomainError('INVALID_RATE_LIMIT', 'requests_per_minute must be a positive integer', 400);
+    }
+    const row = this.store.setKeyRateLimit(agentId, requestsPerMinute);
+    return { agent_id: row.agent_id, requests_per_minute: row.requests_per_minute, updated_at: row.updated_at };
+  }
+
+  getRiskPolicy() {
+    const p = this.store.getRiskPolicy();
+    return {
+      single_tx_limit_cents: p.single_tx_limit_cents,
+      daily_total_limit_cents: p.daily_total_limit_cents,
+      allowlist_enabled: Boolean(p.allowlist_enabled),
+      updated_at: p.updated_at,
+    };
+  }
+
+  updateRiskPolicy(input: { single_tx_limit_cents: number; daily_total_limit_cents: number; allowlist_enabled: boolean }) {
+    if (!Number.isInteger(input.single_tx_limit_cents) || input.single_tx_limit_cents <= 0) {
+      throw new DomainError('INVALID_SINGLE_TX_LIMIT', 'single_tx_limit_cents must be a positive integer', 400);
+    }
+    if (!Number.isInteger(input.daily_total_limit_cents) || input.daily_total_limit_cents <= 0) {
+      throw new DomainError('INVALID_DAILY_LIMIT', 'daily_total_limit_cents must be a positive integer', 400);
+    }
+    if (input.daily_total_limit_cents < input.single_tx_limit_cents) {
+      throw new DomainError('INVALID_LIMITS', 'daily_total_limit_cents must be >= single_tx_limit_cents', 400);
+    }
+    const p = this.store.updateRiskPolicy({
+      singleTxLimitCents: input.single_tx_limit_cents,
+      dailyTotalLimitCents: input.daily_total_limit_cents,
+      allowlistEnabled: input.allowlist_enabled,
+    });
+    return {
+      single_tx_limit_cents: p.single_tx_limit_cents,
+      daily_total_limit_cents: p.daily_total_limit_cents,
+      allowlist_enabled: Boolean(p.allowlist_enabled),
+      updated_at: p.updated_at,
+    };
+  }
+
+  getRecipientAllowlist() {
+    return this.store.listRecipientAllowlist().map((r) => r.recipient_reference);
+  }
+
+  updateRecipientAllowlist(recipientReferences: string[]) {
+    return this.store.replaceRecipientAllowlist(recipientReferences).map((r) => r.recipient_reference);
   }
 
   requestLoginMagicLink(email: string): { ok: true; message: string } {

@@ -591,6 +591,78 @@ describe('Aegis MVP prototype', () => {
     expect(invalidStatus.body.error).toBe('INVALID_STATUS');
   });
 
+  it('admin-control guardrails: keys, status, rotation, limits, allowlist are admin-only', async () => {
+    const api = request(runtime.app);
+
+    await api.get('/api/dev/admin-control/keys').expect(401);
+
+    const adminCookie = await adminLogin(api);
+    const appCookie = await getAppSessionCookie(api, 'usr_demo');
+    const created = await api.post('/api/app/agents').set('Cookie', [appCookie]).send({ name: 'Guardrail Test Agent' }).expect(201);
+    const testAgentId = String(created.body.agent.id);
+
+    const keysRes = await api.get('/api/dev/admin-control/keys').set('Cookie', [adminCookie]).expect(200);
+    expect(Array.isArray(keysRes.body.keys)).toBe(true);
+    expect(keysRes.body.keys.some((k: any) => k.agent_id === 'agt_demo')).toBe(true);
+    expect(keysRes.body.keys.some((k: any) => k.agent_id === testAgentId)).toBe(true);
+
+    const detailRes = await api.get(`/api/dev/admin-control/keys/${encodeURIComponent(testAgentId)}`).set('Cookie', [adminCookie]).expect(200);
+    expect(detailRes.body.key.status).toMatch(/active|disabled/);
+
+    const disabledRes = await api
+      .post(`/api/dev/admin-control/keys/${encodeURIComponent(testAgentId)}/status`)
+      .set('Cookie', [adminCookie])
+      .send({ status: 'disabled' })
+      .expect(200);
+    expect(disabledRes.body.key.status).toBe('disabled');
+
+    const enabledRes = await api
+      .post(`/api/dev/admin-control/keys/${encodeURIComponent(testAgentId)}/status`)
+      .set('Cookie', [adminCookie])
+      .send({ status: 'active' })
+      .expect(200);
+    expect(enabledRes.body.key.status).toBe('active');
+
+    const rotateRes = await api
+      .post(`/api/dev/admin-control/keys/${encodeURIComponent(testAgentId)}/rotate`)
+      .set('Cookie', [adminCookie])
+      .send({})
+      .expect(200);
+    expect(rotateRes.body.api_key).toMatch(/^aegis_/);
+    expect(rotateRes.body.webhook_secret).toMatch(/^whsec_/);
+
+    const rateRes = await api
+      .put(`/api/dev/admin-control/keys/${encodeURIComponent(testAgentId)}/rate-limit`)
+      .set('Cookie', [adminCookie])
+      .send({ requests_per_minute: 120 })
+      .expect(200);
+    expect(rateRes.body.rate_limit.requests_per_minute).toBe(120);
+
+    const riskGet = await api.get('/api/dev/admin-control/policies/risk').set('Cookie', [adminCookie]).expect(200);
+    expect(riskGet.body.policy.single_tx_limit_cents).toBeTypeOf('number');
+
+    const riskPut = await api
+      .put('/api/dev/admin-control/policies/risk')
+      .set('Cookie', [adminCookie])
+      .send({ single_tx_limit_cents: 300000, daily_total_limit_cents: 1200000, allowlist_enabled: true })
+      .expect(200);
+    expect(riskPut.body.policy.allowlist_enabled).toBe(true);
+
+    const allowPut = await api
+      .put('/api/dev/admin-control/policies/allowlist')
+      .set('Cookie', [adminCookie])
+      .send({ recipients: ['merchant_api:a', 'merchant_api:b'], allowlist_enabled: true })
+      .expect(200);
+    expect(allowPut.body.recipients).toContain('merchant_api:a');
+
+    const allowGet = await api
+      .get('/api/dev/admin-control/policies/allowlist')
+      .set('Cookie', [adminCookie])
+      .expect(200);
+    expect(allowGet.body.allowlist_enabled).toBe(true);
+    expect(allowGet.body.recipients).toContain('merchant_api:b');
+  });
+
   it('POST /v1/request_action returns Idempotency-Key header and Idempotency-Replayed on replay', async () => {
     const api = request(runtime.app);
     const body = {

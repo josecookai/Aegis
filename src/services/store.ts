@@ -109,6 +109,20 @@ export interface DeviceRecord {
   updated_at: string;
 }
 
+export interface RiskPolicyRecord {
+  id: string;
+  single_tx_limit_cents: number;
+  daily_total_limit_cents: number;
+  allowlist_enabled: number;
+  updated_at: string;
+}
+
+export interface KeyRateLimitRecord {
+  agent_id: string;
+  requests_per_minute: number;
+  updated_at: string;
+}
+
 export class AegisStore {
   constructor(private readonly db: Database.Database) {}
 
@@ -129,6 +143,18 @@ export class AegisStore {
 
   listAgents(): AgentRecord[] {
     return this.db.prepare('SELECT * FROM agents ORDER BY created_at DESC').all() as AgentRecord[];
+  }
+
+  setAgentStatus(agentId: string, status: 'active' | 'disabled'): boolean {
+    const result = this.db.prepare('UPDATE agents SET status = ? WHERE id = ?').run(status, agentId);
+    return result.changes > 0;
+  }
+
+  rotateAgentSecrets(agentId: string, nextApiKeyHash: string, nextWebhookSecret: string): boolean {
+    const result = this.db
+      .prepare('UPDATE agents SET api_key_hash = ?, webhook_secret = ? WHERE id = ?')
+      .run(nextApiKeyHash, nextWebhookSecret, agentId);
+    return result.changes > 0;
   }
 
   listAgentsByOwner(ownerUserId: string): AgentRecord[] {
@@ -408,6 +434,61 @@ export class AegisStore {
       .prepare(`SELECT * FROM actions ${whereSql} ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?`)
       .all(...params, limit, offset) as ActionRecord[];
     return { rows, total };
+  }
+
+  getRiskPolicy(): RiskPolicyRecord {
+    const row = this.db.prepare('SELECT * FROM risk_policies WHERE id = ?').get('global') as RiskPolicyRecord | undefined;
+    if (!row) throw new Error('Risk policy not initialized');
+    return row;
+  }
+
+  updateRiskPolicy(input: { singleTxLimitCents: number; dailyTotalLimitCents: number; allowlistEnabled: boolean }): RiskPolicyRecord {
+    const now = nowIso();
+    this.db
+      .prepare(
+        'UPDATE risk_policies SET single_tx_limit_cents = ?, daily_total_limit_cents = ?, allowlist_enabled = ?, updated_at = ? WHERE id = ?'
+      )
+      .run(input.singleTxLimitCents, input.dailyTotalLimitCents, input.allowlistEnabled ? 1 : 0, now, 'global');
+    return this.getRiskPolicy();
+  }
+
+  listRecipientAllowlist(): Array<{ recipient_reference: string; created_at: string }> {
+    return this.db
+      .prepare('SELECT recipient_reference, created_at FROM recipient_allowlist ORDER BY created_at ASC')
+      .all() as Array<{ recipient_reference: string; created_at: string }>;
+  }
+
+  replaceRecipientAllowlist(recipientReferences: string[]): Array<{ recipient_reference: string; created_at: string }> {
+    const now = nowIso();
+    const unique = Array.from(new Set(recipientReferences.map((r) => r.trim()).filter(Boolean)));
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM recipient_allowlist').run();
+      const stmt = this.db.prepare('INSERT INTO recipient_allowlist (recipient_reference, created_at) VALUES (?, ?)');
+      for (const ref of unique) {
+        stmt.run(ref, now);
+      }
+    });
+    tx();
+    return this.listRecipientAllowlist();
+  }
+
+  getKeyRateLimit(agentId: string): KeyRateLimitRecord | null {
+    const row = this.db
+      .prepare('SELECT agent_id, requests_per_minute, updated_at FROM key_rate_limits WHERE agent_id = ?')
+      .get(agentId) as KeyRateLimitRecord | undefined;
+    return row ?? null;
+  }
+
+  setKeyRateLimit(agentId: string, requestsPerMinute: number): KeyRateLimitRecord {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO key_rate_limits (agent_id, requests_per_minute, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(agent_id) DO UPDATE SET requests_per_minute=excluded.requests_per_minute, updated_at=excluded.updated_at`
+      )
+      .run(agentId, requestsPerMinute, now);
+    return this.getKeyRateLimit(agentId)!;
   }
 
   transitionActionStatus(opts: TransitionActionOptions): ActionRecord {
